@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dumbdock</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#0f1117;color:#e1e4e8;padding:2rem}
+h1{font-size:1.5rem;margin-bottom:1.5rem;color:#f0f2f5}
+h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1rem;display:flex;flex-direction:column}
+.card-header{display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem}
+.card-header img{width:28px;height:28px;border-radius:4px;object-fit:contain}
+.card-header .icon-placeholder{width:28px;height:28px;border-radius:4px;background:#21262d;display:flex;align-items:center;justify-content:center;font-size:14px;color:#8b949e}
+.card-name{font-weight:600;font-size:1rem;color:#f0f2f5;text-decoration:none}
+.card-name:hover{color:#58a6ff}
+.card-desc{font-size:0.85rem;color:#8b949e;margin-bottom:0.5rem}
+.card-meta{font-size:0.8rem;color:#6e7681;margin-top:auto;padding-top:0.5rem;border-top:1px solid #21262d}
+.card-meta span{display:block;margin-top:2px}
+.card-meta .status-running{color:#3fb950}
+.card-meta .status-exited{color:#f85149}
+.card-meta .status-paused{color:#d29922}
+.unlabeled-list{display:flex;flex-direction:column;gap:0.5rem}
+.unlabeled-item{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem;font-size:0.9rem}
+.unlabeled-item .name{font-weight:600;color:#f0f2f5;flex-shrink:0;min-width:180px}
+.unlabeled-item .detail{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.unlabeled-item .status{flex-shrink:0;min-width:70px;text-align:right}
+.loading{text-align:center;padding:3rem;color:#8b949e}
+.error{text-align:center;padding:2rem;color:#f85149}
+</style>
+</head>
+<body>
+<h1>dumbdock</h1>
+<div id="app">
+  <div class="loading">Loading containers...</div>
+</div>
+
+<script>
+async function load() {
+  try {
+    const res = await fetch('/api/containers');
+    const data = await res.json();
+    render(data);
+  } catch (e) {
+    document.getElementById('app').innerHTML = '<div class="error">Failed to load containers: ' + e.message + '</div>';
+  }
+}
+
+function render(data) {
+  let html = '';
+
+  for (const group of data.groups) {
+    const cards = data.grouped[group];
+    html += '<h2>' + escapeHtml(group) + '</h2>';
+    html += '<div class="grid">';
+    for (const card of cards) {
+      html += renderCard(card);
+    }
+    html += '</div>';
+  }
+
+  if (data.unlabeled && data.unlabeled.length > 0) {
+    html += '<h2>Unlabeled <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + data.unlabeled.length + ')</span></h2>';
+    html += '<div class="unlabeled-list">';
+    for (const card of data.unlabeled) {
+      html += renderUnlabeled(card);
+    }
+    html += '</div>';
+  }
+
+  if (data.groups.length === 0 && (!data.unlabeled || data.unlabeled.length === 0)) {
+    html = '<div class="loading">No running containers found.</div>';
+  }
+
+  document.getElementById('app').innerHTML = html;
+}
+
+function renderCard(card) {
+  const icon = card.icon ? '<img src="' + escapeHtml(card.icon) + '" alt="">' : '<div class="icon-placeholder">&#9632;</div>';
+  const href = card.href ? 'href="' + escapeHtml(card.href) + '" target="_blank" rel="noopener"' : '';
+  const name = href ? '<a class="card-name" ' + href + '>' + escapeHtml(card.name) + '</a>' : '<span class="card-name">' + escapeHtml(card.name) + '</span>';
+  const desc = card.description ? '<div class="card-desc">' + escapeHtml(card.description) + '</div>' : '';
+  return '<div class="card">' +
+    '<div class="card-header">' + icon + name + '</div>' +
+    desc +
+    '<div class="card-meta"><span class="status-' + card.state + '">' + escapeHtml(card.status) + '</span><span>' + escapeHtml(card.containerName) + '</span></div>' +
+    '</div>';
+}
+
+function renderUnlabeled(card) {
+  const ports = card.ports ? ' &middot; ' + escapeHtml(card.ports) : '';
+  const statusClass = 'status-' + card.state;
+  return '<div class="unlabeled-item">' +
+    '<span class="name">' + escapeHtml(card.containerName) + '</span>' +
+    '<span class="detail">' + escapeHtml(card.image) + ports + '</span>' +
+    '<span class="status ' + statusClass + '">' + escapeHtml(card.status) + '</span>' +
+    '</div>';
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>

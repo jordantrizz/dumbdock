@@ -1,0 +1,17 @@
+services:
+  dumbdock:
+    build: .
+    container_name: dumbdock
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - POLL_INTERVAL=10s
+      # - DUMBDOCK_URL=https://dumbdock.example.com   # public URL for alert links
+      # - NTFY_TOPIC=mytopic                           # ntfy alert notifications
+      # - GOTIFY_URL=https://gotify.example.com        # Gotify alert server
+      # - GOTIFY_TOKEN=your-token                      # Gotify app token
+      # - ALERT_COOLDOWN=5m                            # min time between alerts
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # - ./dumbdock.json:/config/dumbdock.json:ro     # override config
