@@ -15,13 +15,23 @@ type containerCard struct {
 	Description string `json:"description"`
 	Order       int    `json:"order"`
 
-	ContainerID   string `json:"containerId"`
-	ContainerName string `json:"containerName"`
-	Image         string `json:"image"`
-	Status        string `json:"status"`
-	State         string `json:"state"`
-	Ports         string `json:"ports"`
-	HasLabels     bool   `json:"hasLabels"`
+	ContainerID   string            `json:"containerId"`
+	ContainerName string            `json:"containerName"`
+	Image         string            `json:"image"`
+	Status        string            `json:"status"`
+	State         string            `json:"state"`
+	Ports         string            `json:"ports"`
+	Created       int64             `json:"created"`
+	Labels        map[string]string `json:"labels"`
+	HasLabels     bool              `json:"hasLabels"`
+
+	AutoDetectFailedReason string `json:"autoDetectFailedReason,omitempty"`
+
+	// Network warnings
+	HasPublicBinding bool     `json:"hasPublicBinding"`
+	PublicBindingIPs []string `json:"publicBindingIPs,omitempty"`
+	TraefikEnabled   bool     `json:"traefikEnabled"`
+	TraefikURLs      []string `json:"traefikURLs,omitempty"`
 }
 
 func parseLabels(labels map[string]string) containerCard {

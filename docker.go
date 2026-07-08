@@ -10,16 +10,18 @@ import (
 )
 
 type dockerContainer struct {
-	ID     string            `json:"Id"`
-	Names  []string          `json:"Names"`
-	Image  string            `json:"Image"`
-	State  string            `json:"State"`
-	Status string            `json:"Status"`
-	Ports  []dockerPort      `json:"Ports"`
-	Labels map[string]string `json:"Labels"`
+	ID      string            `json:"Id"`
+	Names   []string          `json:"Names"`
+	Image   string            `json:"Image"`
+	State   string            `json:"State"`
+	Status  string            `json:"Status"`
+	Ports   []dockerPort      `json:"Ports"`
+	Labels  map[string]string `json:"Labels"`
+	Created int64             `json:"Created"`
 }
 
 type dockerPort struct {
+	IP          string `json:"IP"`
 	PrivatePort uint16 `json:"PrivatePort"`
 	PublicPort  uint16 `json:"PublicPort"`
 	Type        string `json:"Type"`

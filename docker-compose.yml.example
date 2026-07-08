@@ -1,0 +1,23 @@
+services:
+  dumbdock:
+    build: .
+    container_name: dumbdock
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - POLL_INTERVAL=10s
+      # - AUTO_DETECTION=true                            # enable/disable auto-detection
+      # - AUTODETECT_GROUP_NAME=Auto Detected            # name for the auto-detected group
+      # - AUTO_DETECTION_SERVICE_BLACKLIST=server,db,app # skip service-name-based icon matching for generic names
+      # - CONTAINER_BLACKLIST=dumbdock,traefik           # hide specific containers from the dashboard
+      # - DUMBDOCK_URL=https://dumbdock.example.com      # public URL for alert links
+      # - NTFY_TOPIC=mytopic                             # ntfy alert notifications
+      # - GOTIFY_URL=https://gotify.example.com          # Gotify alert server
+      # - GOTIFY_TOKEN=your-token                        # Gotify app token
+      # - ALERT_COOLDOWN=5m                              # min time between alerts
+      # - DUMBDOCK_PASSWORD=changeme                     # enables Basic Auth on the dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # - ./dumbdock.json:/config/dumbdock.json:ro     # override config (supports iconSets)
+      # - ./my-icons/:/config/my-icons/:ro             # local icon index files

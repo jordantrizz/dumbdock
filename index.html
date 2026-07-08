@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>dumbdock</title>
+<link rel="icon" href="/dumbdock.svg" type="image/svg+xml">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#0f1117;color:#e1e4e8;padding:2rem}
@@ -17,27 +18,135 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .card-name{font-weight:600;font-size:1rem;color:#f0f2f5;text-decoration:none}
 .card-name:hover{color:#58a6ff}
 .card-desc{font-size:0.85rem;color:#8b949e;margin-bottom:0.5rem}
-.card-meta{font-size:0.8rem;color:#6e7681;margin-top:auto;padding-top:0.5rem;border-top:1px solid #21262d}
+.card-meta{font-size:0.8rem;color:#6e7681;margin-top:auto;padding-top:0.5rem;border-top:1px solid #21262d;display:flex;flex-wrap:wrap;align-items:center;gap:0.25rem 1rem}
 .card-meta span{display:block;margin-top:2px}
 .card-meta .status-running{color:#3fb950}
 .card-meta .status-exited{color:#f85149}
 .card-meta .status-paused{color:#d29922}
+.card-meta .toggle-btn{background:none;border:none;color:#8b949e;cursor:pointer;font-size:0.8rem;padding:4px 8px;border-radius:4px;flex-shrink:0;line-height:1;margin-left:auto}
+.card-meta .toggle-btn:hover{color:#f0f2f5;background:#21262d}
+.card-warnings{display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin-bottom:0.5rem;font-size:0.8rem}
+.warning-icon{cursor:help;line-height:1;font-size:1rem}
+.warning-public{color:#f85149}
+.warning-traefik{color:#58a6ff}
+.traefik-url{color:#58a6ff;text-decoration:none;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.15rem;padding:1px 4px;border-radius:3px;background:#1a2332}
+.traefik-url:hover{background:#21262d;text-decoration:underline}
+.unlabeled-warnings{flex-shrink:0;display:flex;align-items:center;gap:0.25rem;font-size:0.85rem}
 .unlabeled-list{display:flex;flex-direction:column;gap:0.5rem}
-.unlabeled-item{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem;font-size:0.9rem}
+.unlabeled-item{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:0;font-size:0.9rem}
+.unlabeled-row{padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem}
 .unlabeled-item .name{font-weight:600;color:#f0f2f5;flex-shrink:0;min-width:180px}
 .unlabeled-item .detail{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .unlabeled-item .status{flex-shrink:0;min-width:70px;text-align:right}
+.unlabeled-item .toggle-btn{background:none;border:none;color:#8b949e;cursor:pointer;font-size:0.8rem;padding:4px 8px;border-radius:4px;flex-shrink:0;line-height:1}
+.unlabeled-item .toggle-btn:hover{color:#f0f2f5;background:#21262d}
+.unlabeled-code{display:none;padding:0.75rem 1rem;background:#0d1117;border-top:1px solid #30363d;border-radius:0 0 6px 6px;line-height:1.5}
+.unlabeled-code.open{display:block}
+
+.unlabeled-section{margin-bottom:0.75rem}
+.unlabeled-section:last-child{margin-bottom:0}
+.unlabeled-section-title{font-size:0.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem}
+
+.unlabeled-info{display:grid;grid-template-columns:auto 1fr;gap:2px 1rem;font-size:0.8rem}
+.unlabeled-info-key{color:#6e7681}
+.unlabeled-info-value{color:#e1e4e8;word-break:break-all}
+
+.unlabeled-labels{display:grid;grid-template-columns:auto 1fr;gap:2px 1rem;font-size:0.8rem}
+.unlabeled-label-key{color:#6e7681;font-family:monospace;word-break:break-all}
+.unlabeled-label-value{color:#e1e4e8;font-family:monospace;word-break:break-all}
+.unlabeled-label-key.unlabeled-label-dumbdock{color:#58a6ff}
+.unlabeled-label-value.unlabeled-label-dumbdock{color:#f0f2f5}
+
+.unlabeled-no-labels{font-size:0.8rem;color:#6e7681;font-style:italic}
+
+.unlabeled-code-separator{margin:0.75rem 0 0.5rem;border:none;border-top:1px solid #21262d}
+.unlabeled-code-example{white-space:pre;font-family:monospace;font-size:0.8rem;color:#8b949e;overflow-x:auto}
 .loading{text-align:center;padding:3rem;color:#8b949e}
 .error{text-align:center;padding:2rem;color:#f85149}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;margin-bottom:1.5rem;padding:0.5rem 0.75rem;background:#161b22;border:1px solid #30363d;border-radius:6px;font-size:0.8rem;color:#8b949e}
+.legend-item{display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap}
+.legend-icon{font-size:1rem;line-height:1}
+.legend-icon.legend-public{color:#f85149}
+.legend-icon.legend-traefik{color:#58a6ff}
+
+/* Nav */
+.nav-bar{display:flex;align-items:center;gap:1.5rem;margin-bottom:1.5rem;padding:0.75rem 1rem;background:#161b22;border:1px solid #30363d;border-radius:8px}
+.nav-title{font-size:1.2rem;font-weight:700;color:#f0f2f5;text-decoration:none}
+.nav-tabs{display:flex;gap:0.5rem;margin-left:auto}
+.nav-tab{padding:0.4rem 0.9rem;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:0.85rem;transition:all 0.15s}
+.nav-tab:hover{color:#f0f2f5;background:#21262d}
+.nav-tab.active{color:#f0f2f5;background:#1f6feb;border-color:#1f6feb}
+
+/* Icons page */
+.icon-search{margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem}
+.icon-search-input{flex:1;padding:0.6rem 0.75rem;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:0.9rem;outline:none}
+.icon-search-input:focus{border-color:#58a6ff}
+.icon-search-count{font-size:0.85rem;color:#8b949e;white-space:nowrap}
+.icon-table-wrap{overflow-x:auto}
+.icon-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.icon-table th{padding:0.5rem 0.75rem;background:#161b22;border-bottom:2px solid #30363d;color:#8b949e;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap}
+.icon-table td{padding:0.45rem 0.75rem;border-bottom:1px solid #21262d;color:#e1e4e8;vertical-align:middle}
+.icon-table tr:hover td{background:#161b22}
+.icon-table img{width:24px;height:24px;object-fit:contain;border-radius:3px}
+.icon-table .slug-cell{font-family:monospace;font-size:0.8rem}
+.icon-table .provider-badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:0.75rem;font-weight:500;background:#1a2332;color:#58a6ff}
+.icon-table .no-image{color:#6e7681;font-size:0.75rem;font-style:italic}
+.icon-table .mapping-key{font-family:monospace;font-size:0.8rem;word-break:break-all}
+.icon-table .empty-mapping{color:#6e7681;font-style:italic}
+.icon-provider-filter{display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem}
+.icon-provider-btn{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:0.8rem;transition:all 0.15s}
+.icon-provider-btn:hover{color:#f0f2f5;background:#21262d}
+.icon-provider-btn.active{color:#f0f2f5;background:#1f6feb;border-color:#1f6feb}
+.icon-empty{text-align:center;padding:3rem;color:#8b949e}
+.icon-loading{text-align:center;padding:3rem;color:#8b949e}
+.icon-error{text-align:center;padding:2rem;color:#f85149}
+.icon-sentinel td{height:1px;padding:0;border-bottom:none}
+
+/* Card detail modal pop-out */
+.detail-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000}
+.detail-backdrop.open{display:block}
+.card .unlabeled-code.open{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);max-width:900px;width:90vw;max-height:85vh;overflow-y:auto;z-index:1001;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,0.5);padding:2rem 1.5rem 1.5rem;line-height:1.6;border:1px solid #30363d}
+.detail-close{position:absolute;top:12px;right:14px;background:none;border:none;color:#8b949e;cursor:pointer;font-size:1rem;padding:4px 8px;border-radius:4px;line-height:1;z-index:1002}
+.detail-close:hover{color:#f0f2f5;background:#21262d}
+
+/* Footer */
+.footer{text-align:center;padding:1.5rem;font-size:0.75rem;color:#6e7681;border-top:1px solid #21262d;margin-top:1.5rem}
 </style>
 </head>
 <body>
-<h1>dumbdock</h1>
+<div class="nav-bar">
+  <span class="nav-title"><img src="/dumbdock.svg" width="24" height="24" alt="" style="vertical-align:middle;margin-right:6px">dumbdock</span>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="nav-tab" onclick="switchTab('icons')">Icons</button>
+  </div>
+</div>
+
+<div id="page-dashboard">
+<div class="legend">
+  <span class="legend-item"><span class="legend-icon legend-public">&#9650;</span> Public port binding</span>
+  <span class="legend-item"><span class="legend-icon legend-traefik">&#128279;</span> Traefik enabled</span>
+  <span class="legend-item"><span class="legend-icon">&#127760;</span> Traefik URL</span>
+</div>
 <div id="app">
   <div class="loading">Loading containers...</div>
 </div>
+<div class="footer">dumbdock <span id="version-display"></span></div>
+</div>
 
+<div id="page-icons" style="display:none">
+  <div class="icon-search">
+    <input class="icon-search-input" id="iconSearch" type="text" placeholder="Search image names, icon slugs, or providers..." oninput="filterIcons()">
+    <span class="icon-search-count" id="iconCount"></span>
+    <a href="/api/icons" target="_blank" class="icon-provider-btn" style="text-decoration:none;flex-shrink:0">View raw JSON</a>
+  </div>
+  <div class="icon-provider-filter" id="providerFilters"></div>
+  <div id="iconResults"></div>
+</div>
+
+<div id="detail-backdrop" class="detail-backdrop"></div>
 <script>
+const expandedItems = new Set();
 async function load() {
   try {
     const res = await fetch('/api/containers');
@@ -74,7 +183,134 @@ function render(data) {
     html = '<div class="loading">No running containers found.</div>';
   }
 
+  // Collect currently open item IDs from the DOM before replacing
+  document.querySelectorAll('.unlabeled-code.open').forEach(function(el) {
+    expandedItems.add(el.id);
+  });
+
   document.getElementById('app').innerHTML = html;
+
+  // Re-apply open state to any items that were expanded
+  var stale = [];
+  expandedItems.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.classList.add('open');
+      var container = el.closest('.card, .unlabeled-item');
+      var btn = container.querySelector('.toggle-btn');
+      if (btn) btn.innerHTML = '&#9660;';
+      if (container.classList.contains('card')) {
+        var backdrop = document.getElementById('detail-backdrop');
+        if (backdrop) backdrop.classList.add('open');
+      }
+    } else {
+      stale.push(id);
+    }
+  });
+  stale.forEach(function(id) { expandedItems.delete(id); });
+}
+
+function renderDetailSections(card) {
+  // Current Labels section
+  let labelsHtml = '';
+  if (card.labels && Object.keys(card.labels).length > 0) {
+    labelsHtml += '<div class="unlabeled-section">';
+    labelsHtml += '<div class="unlabeled-section-title">Current Labels</div>';
+    labelsHtml += '<div class="unlabeled-labels">';
+    const keys = Object.keys(card.labels).sort();
+    for (const key of keys) {
+      const value = card.labels[key];
+      const isDumbdock = key.startsWith('dumbdock.');
+      const keyCls = isDumbdock ? 'unlabeled-label-key unlabeled-label-dumbdock' : 'unlabeled-label-key';
+      const valCls = isDumbdock ? 'unlabeled-label-value unlabeled-label-dumbdock' : 'unlabeled-label-value';
+      labelsHtml += '<span class="' + keyCls + '">' + escapeHtml(key) + '</span>';
+      labelsHtml += '<span class="' + valCls + '">' + escapeHtml(value) + '</span>';
+    }
+    labelsHtml += '</div></div>';
+  } else {
+    labelsHtml += '<div class="unlabeled-section">';
+    labelsHtml += '<div class="unlabeled-section-title">Current Labels</div>';
+    labelsHtml += '<div class="unlabeled-no-labels">No labels set on this container</div>';
+    labelsHtml += '</div>';
+  }
+
+  // Container Info section
+  let infoHtml = '<div class="unlabeled-section">';
+  infoHtml += '<div class="unlabeled-section-title">Container Info</div>';
+  infoHtml += '<div class="unlabeled-info">';
+  infoHtml += '<span class="unlabeled-info-key">Container ID</span><span class="unlabeled-info-value">' + escapeHtml(card.containerId) + '</span>';
+  infoHtml += '<span class="unlabeled-info-key">Image</span><span class="unlabeled-info-value">' + escapeHtml(card.image) + '</span>';
+  if (card.created) {
+    infoHtml += '<span class="unlabeled-info-key">Created</span><span class="unlabeled-info-value">' + formatTimestamp(card.created) + '</span>';
+  }
+  infoHtml += '<span class="unlabeled-info-key">Status</span><span class="unlabeled-info-value">' + escapeHtml(card.status) + '</span>';
+  if (card.ports) {
+    infoHtml += '<span class="unlabeled-info-key">Ports</span><span class="unlabeled-info-value">' + escapeHtml(card.ports) + '</span>';
+  }
+  infoHtml += '</div></div>';
+
+  // Auto-Detection section
+  let autoDetectHtml = '';
+  if (card.autoDetectFailedReason) {
+    autoDetectHtml += '<div class="unlabeled-section">';
+    autoDetectHtml += '<div class="unlabeled-section-title">Auto-Detection</div>';
+    autoDetectHtml += '<div class="unlabeled-info">';
+    autoDetectHtml += '<span class="unlabeled-info-key">Reason</span>';
+    autoDetectHtml += '<span class="unlabeled-info-value" style="color:#d29922">' + escapeHtml(card.autoDetectFailedReason) + '</span>';
+    autoDetectHtml += '</div></div>';
+  }
+
+  // Network Warnings expanded section
+  let networkWarningsHtml = '';
+  const networkWarningsItems = [];
+  if (card.hasPublicBinding) {
+    const ips = card.publicBindingIPs && card.publicBindingIPs.length > 0 ? card.publicBindingIPs.join(', ') : '0.0.0.0';
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#9650; Public Binding</span><span class="unlabeled-info-value" style="color:#f85149">Bound to ' + escapeHtml(ips) + '</span>');
+  }
+  if (card.traefikEnabled) {
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#128279; Traefik</span><span class="unlabeled-info-value" style="color:#58a6ff">Enabled on this container</span>');
+  }
+  if (card.traefikURLs && card.traefikURLs.length > 0) {
+    for (let u of card.traefikURLs) {
+      networkWarningsItems.push('<span class="unlabeled-info-key">&#127760; URL</span><span class="unlabeled-info-value"><a href="' + escapeHtml(u) + '" target="_blank" rel="noopener" style="color:#58a6ff">' + escapeHtml(u) + '</a></span>');
+    }
+  }
+  if (networkWarningsItems.length > 0) {
+    networkWarningsHtml = '<div class="unlabeled-section">';
+    networkWarningsHtml += '<div class="unlabeled-section-title">Network Warnings</div>';
+    networkWarningsHtml += '<div class="unlabeled-info">';
+    networkWarningsHtml += networkWarningsItems.join('');
+    networkWarningsHtml += '</div></div>';
+  }
+
+  // Example Config section
+  const cname = escapeHtml(card.containerName);
+  const example =
+    '# docker-compose.yml labels:\n' +
+    'labels:\n' +
+    '  dumbdock.name: "' + cname + '"\n' +
+    '  dumbdock.group: "My Group"\n' +
+    '  dumbdock.icon: "https://example.com/icon.png"\n' +
+    '  dumbdock.href: "https://example.com"\n' +
+    '  dumbdock.description: "What this container does"\n' +
+    '  dumbdock.order: "1"\n' +
+    '\n' +
+    '# Or dumbdock.json:\n' +
+    '{\n' +
+    '  "containers": {\n' +
+    '    "' + cname + '": {\n' +
+    '      "name": "' + cname + '",\n' +
+    '      "group": "My Group",\n' +
+    '      "icon": "https://example.com/icon.png",\n' +
+    '      "href": "https://example.com",\n' +
+    '      "description": "What this container does",\n' +
+    '      "order": 1\n' +
+    '    }\n' +
+    '  }\n' +
+    '}';
+  const exampleHtml = '<hr class="unlabeled-code-separator"><div class="unlabeled-section-title">Example Config</div><div class="unlabeled-code-example">' + example + '</div>';
+
+  return labelsHtml + infoHtml + autoDetectHtml + networkWarningsHtml + exampleHtml;
 }
 
 function renderCard(card) {
@@ -82,21 +318,101 @@ function renderCard(card) {
   const href = card.href ? 'href="' + escapeHtml(card.href) + '" target="_blank" rel="noopener"' : '';
   const name = href ? '<a class="card-name" ' + href + '>' + escapeHtml(card.name) + '</a>' : '<span class="card-name">' + escapeHtml(card.name) + '</span>';
   const desc = card.description ? '<div class="card-desc">' + escapeHtml(card.description) + '</div>' : '';
+
+  // Network warnings
+  let warningsHtml = '';
+  const warnings = [];
+  if (card.hasPublicBinding) {
+    const ips = card.publicBindingIPs && card.publicBindingIPs.length > 0 ? card.publicBindingIPs.join(', ') : 'non-localhost';
+    warnings.push('<span class="warning-icon warning-public" title="Port bound to non-localhost IP: ' + escapeHtml(ips) + '">&#9650;</span>');
+  }
+  if (card.traefikEnabled) {
+    warnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
+  }
+  if (card.traefikURLs && card.traefikURLs.length > 0) {
+    for (let u of card.traefikURLs) {
+      warnings.push('<a class="traefik-url" href="' + escapeHtml(u) + '" target="_blank" rel="noopener">&#127760; ' + escapeHtml(u.replace('https://', '')) + '</a>');
+    }
+  }
+  if (warnings.length > 0) {
+    warningsHtml = '<div class="card-warnings">' + warnings.join('') + '</div>';
+  }
+
+  const id = 'code-' + card.containerId;
+  const detailSections = renderDetailSections(card);
+
   return '<div class="card">' +
     '<div class="card-header">' + icon + name + '</div>' +
     desc +
-    '<div class="card-meta"><span class="status-' + card.state + '">' + escapeHtml(card.status) + '</span><span>' + escapeHtml(card.containerName) + '</span></div>' +
+    warningsHtml +
+    '<div class="card-meta"><span class="status-' + card.state + '">' + escapeHtml(card.status) + '</span><span>' + escapeHtml(card.containerName) + '</span><button class="toggle-btn" onclick="toggleCode(\'' + id + '\')">&#9654;</button></div>' +
+    '<div id="' + id + '" class="unlabeled-code"><button class="detail-close" onclick="toggleCode(\'' + id + '\')">&#10005;</button>' + detailSections + '</div>' +
     '</div>';
 }
 
 function renderUnlabeled(card) {
   const ports = card.ports ? ' &middot; ' + escapeHtml(card.ports) : '';
   const statusClass = 'status-' + card.state;
+  const cname = escapeHtml(card.containerName);
+  const id = 'code-' + card.containerId;
+
+  // Auto-detect badge for the collapsed row
+  const autoBadge = card.autoDetectFailedReason ? ' <span style="color:#d29922;font-size:0.75rem">&#9888; auto-detect failed</span>' : '';
+
+  // Network warnings for the collapsed row
+  let unlabeledWarningsHtml = '';
+  const unlabeledWarnings = [];
+  if (card.hasPublicBinding) {
+    const ips = card.publicBindingIPs && card.publicBindingIPs.length > 0 ? card.publicBindingIPs.join(', ') : 'non-localhost';
+    unlabeledWarnings.push('<span class="warning-icon warning-public" title="Port bound to non-localhost IP: ' + escapeHtml(ips) + '">&#9650;</span>');
+  }
+  if (card.traefikEnabled) {
+    unlabeledWarnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
+  }
+  if (unlabeledWarnings.length > 0) {
+    unlabeledWarningsHtml = unlabeledWarnings.join('');
+  }
+
   return '<div class="unlabeled-item">' +
-    '<span class="name">' + escapeHtml(card.containerName) + '</span>' +
-    '<span class="detail">' + escapeHtml(card.image) + ports + '</span>' +
+    '<div class="unlabeled-row">' +
+    '<span class="name">' + cname + '</span>' +
+    '<span class="detail">' + escapeHtml(card.image) + ports + autoBadge + '</span>' +
     '<span class="status ' + statusClass + '">' + escapeHtml(card.status) + '</span>' +
+    '<span class="unlabeled-warnings">' + unlabeledWarningsHtml + '</span>' +
+    '<button class="toggle-btn" onclick="toggleCode(\'' + id + '\')">&#9654;</button>' +
+    '</div>' +
+    '<div id="' + id + '" class="unlabeled-code">' +
+    renderDetailSections(card) +
+    '</div>' +
     '</div>';
+}
+
+function toggleCode(id) {
+  const el = document.getElementById(id);
+  const container = el.closest('.card, .unlabeled-item');
+  const btn = container.querySelector('.toggle-btn');
+
+  if (el.classList.contains('open')) {
+    el.classList.remove('open');
+    btn.innerHTML = '&#9654;';
+    expandedItems.delete(id);
+    if (container.classList.contains('card')) {
+      document.getElementById('detail-backdrop').classList.remove('open');
+    }
+  } else {
+    // For card modals, close any other open card detail first (only one at a time)
+    if (container.classList.contains('card')) {
+      document.querySelectorAll('.card .unlabeled-code.open').forEach(function(other) {
+        toggleCode(other.id);
+      });
+    }
+    el.classList.add('open');
+    btn.innerHTML = '&#9660;';
+    expandedItems.add(id);
+    if (container.classList.contains('card')) {
+      document.getElementById('detail-backdrop').classList.add('open');
+    }
+  }
 }
 
 function escapeHtml(text) {
@@ -104,8 +420,238 @@ function escapeHtml(text) {
   return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function formatTimestamp(unix) {
+  const now = Date.now() / 1000;
+  const diff = now - unix;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
+  if (diff < 2592000) return Math.floor(diff / 604800) + ' weeks ago';
+  return Math.floor(diff / 2592000) + ' months ago';
+}
+
 load();
 setInterval(load, 10000);
+
+async function loadVersion() {
+  try {
+    const res = await fetch('/api/version');
+    const data = await res.json();
+    document.getElementById('version-display').textContent = 'v' + data.version + ' (build ' + data.build + ')';
+  } catch (e) {
+    document.getElementById('version-display').textContent = '(version unavailable)';
+  }
+}
+loadVersion();
+
+// Escape key closes card modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var openCard = document.querySelector('.card .unlabeled-code.open');
+    if (openCard) toggleCode(openCard.id);
+  }
+});
+
+// Backdrop click closes card modal
+document.getElementById('detail-backdrop').addEventListener('click', function() {
+  var openCard = document.querySelector('.card .unlabeled-code.open');
+  if (openCard) toggleCode(openCard.id);
+});
+
+// ---- Tab switching ----
+let iconsData = null;
+
+function switchTab(tab) {
+  // Close any open card modal when switching tabs
+  var openCard = document.querySelector('.card .unlabeled-code.open');
+  if (openCard) toggleCode(openCard.id);
+
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('[id^="page-"]').forEach(p => p.style.display = 'none');
+
+  if (tab === 'dashboard') {
+    document.querySelector('.nav-tab:first-child').classList.add('active');
+    document.getElementById('page-dashboard').style.display = '';
+  } else {
+    document.querySelectorAll('.nav-tab')[1].classList.add('active');
+    document.getElementById('page-icons').style.display = '';
+    if (!iconsData) {
+      loadIcons();
+    }
+  }
+}
+
+async function loadIcons() {
+  const container = document.getElementById('iconResults');
+  container.innerHTML = '<div class="icon-loading">Loading icons...</div>';
+  try {
+    const res = await fetch('/api/icons');
+    iconsData = await res.json();
+    buildProviderFilters();
+    applyFilter();
+  } catch (e) {
+    container.innerHTML = '<div class="icon-error">Failed to load icons: ' + e.message + '</div>';
+  }
+}
+
+function buildProviderFilters() {
+  const container = document.getElementById('providerFilters');
+
+  // Compute count for each provider: mappings + known slugs not in mappings
+  const providerCounts = iconsData.iconSets.map(set => {
+    const mappedVals = new Set(Object.values(set.mappings));
+    const unmapped = set.slugs.filter(s => !mappedVals.has(s));
+    return Object.keys(set.mappings).length + unmapped.length;
+  });
+  const totalCount = providerCounts.reduce((a, b) => a + b, 0);
+
+  let html = '<button class="icon-provider-btn active" data-provider="all" onclick="filterByProvider(this, \'all\')">All <span style="color:#6e7681">(' + totalCount + ')</span></button>';
+  for (let i = 0; i < iconsData.iconSets.length; i++) {
+    const set = iconsData.iconSets[i];
+    const count = providerCounts[i];
+    html += '<button class="icon-provider-btn" data-provider="' + escapeHtml(set.name) + '" onclick="filterByProvider(this, \'' + escapeHtml(set.name) + '\')">' + escapeHtml(set.name) + ' <span style="color:#6e7681">(' + count + ')</span></button>';
+  }
+  container.innerHTML = html;
+}
+
+let activeProvider = 'all';
+let allIconRows = [];
+let displayLimit = 100;
+const ROW_INCREMENT = 100;
+let iconObserver = null;
+let iconLoadingMore = false;
+
+function filterByProvider(btn, provider) {
+  activeProvider = provider;
+  document.querySelectorAll('.icon-provider-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  filterIcons();
+}
+
+let filterTimeout = null;
+
+function filterIcons() {
+  clearTimeout(filterTimeout);
+  filterTimeout = setTimeout(applyFilter, 150);
+}
+
+function applyFilter() {
+  if (!iconsData) return;
+  const q = document.getElementById('iconSearch').value.toLowerCase();
+  const container = document.getElementById('iconResults');
+
+  allIconRows = [];
+
+  for (const set of iconsData.iconSets) {
+    if (activeProvider !== 'all' && activeProvider !== set.name) continue;
+
+    // Mappings (image name -> icon slug)
+    for (const [imageName, slug] of Object.entries(set.mappings)) {
+      if (q && !imageName.toLowerCase().includes(q) && !slug.toLowerCase().includes(q) && !set.name.toLowerCase().includes(q)) continue;
+      allIconRows.push({
+        imageName: imageName,
+        slug: slug,
+        provider: set.name,
+        cdnUrl: set.cdnUrlTemplate.replace('{slug}', slug),
+        isMapping: true
+      });
+    }
+
+    // Known slugs without an explicit mapping entry
+    const mapped = new Set(Object.values(set.mappings));
+    for (const slug of set.slugs) {
+      if (mapped.has(slug)) continue;
+      if (q && !slug.toLowerCase().includes(q) && !set.name.toLowerCase().includes(q)) continue;
+      allIconRows.push({
+        imageName: null,
+        slug: slug,
+        provider: set.name,
+        cdnUrl: set.cdnUrlTemplate.replace('{slug}', slug),
+        isMapping: false
+      });
+    }
+  }
+
+  document.getElementById('iconCount').textContent = allIconRows.length + ' icon' + (allIconRows.length !== 1 ? 's' : '');
+
+  if (allIconRows.length === 0) {
+    container.innerHTML = '<div class="icon-empty">No icons match your search.</div>';
+    return;
+  }
+
+  // Reset lazy loading state and rebuild from scratch
+  if (iconObserver) iconObserver.disconnect();
+  displayLimit = ROW_INCREMENT;
+  iconLoadingMore = false;
+  renderIconTable(false);
+}
+
+function rowToHtml(row) {
+  const imgName = row.isMapping
+    ? '<span class="mapping-key">' + escapeHtml(row.imageName) + '</span>'
+    : '<span class="empty-mapping">&mdash; (known slug)</span>';
+  const preview = '<img src="' + escapeHtml(row.cdnUrl) + '" alt="' + escapeHtml(row.slug) + '" loading="lazy" onerror="this.style.display=\'none\'">';
+  return '<tr><td>' + imgName + '</td><td class="slug-cell">' + escapeHtml(row.slug) + '</td><td><span class="provider-badge">' + escapeHtml(row.provider) + '</span></td><td>' + preview + '</td></tr>';
+}
+
+function loadMoreIcons() {
+  if (iconLoadingMore) return;
+  if (displayLimit >= allIconRows.length) return;
+  iconLoadingMore = true;
+  displayLimit = Math.min(displayLimit + ROW_INCREMENT, allIconRows.length);
+  renderIconTable(true);
+  iconLoadingMore = false;
+}
+
+function renderIconTable(append) {
+  const container = document.getElementById('iconResults');
+  const count = Math.min(displayLimit, allIconRows.length);
+
+  if (!append) {
+    // Full render: build the entire table from scratch
+    let html = '<div class="icon-table-wrap"><table class="icon-table"><thead><tr><th>Image Name</th><th>Icon Slug</th><th>Provider</th><th>Preview</th></tr></thead><tbody>';
+    for (let i = 0; i < count; i++) {
+      html += rowToHtml(allIconRows[i]);
+    }
+    // Add sentinel row if there are more icons to lazy load
+    if (count < allIconRows.length) {
+      html += '<tr id="iconSentinel" class="icon-sentinel"><td colspan="4"></td></tr>';
+    }
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  } else {
+    // Append mode: insert new rows before the existing sentinel
+    const sentinel = document.getElementById('iconSentinel');
+    if (!sentinel) return;
+    const prevCount = count - ROW_INCREMENT;
+    let html = '';
+    for (let i = prevCount; i < count; i++) {
+      html += rowToHtml(allIconRows[i]);
+    }
+    sentinel.insertAdjacentHTML('beforebegin', html);
+    // If all icons are now displayed, remove the sentinel
+    if (count >= allIconRows.length) {
+      if (iconObserver) iconObserver.unobserve(sentinel);
+      sentinel.remove();
+      return;
+    }
+  }
+
+  // Observe the sentinel for infinite scroll
+  const sentinel = document.getElementById('iconSentinel');
+  if (sentinel) {
+    if (!iconObserver) {
+      iconObserver = new IntersectionObserver(function(entries) {
+        if (entries[0].isIntersecting) {
+          loadMoreIcons();
+        }
+      }, { rootMargin: '200px' });
+    }
+    iconObserver.observe(sentinel);
+  }
+}
+
 </script>
 </body>
 </html>
