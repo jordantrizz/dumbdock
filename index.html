@@ -28,6 +28,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .card-warnings{display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin-bottom:0.5rem;font-size:0.8rem}
 .warning-icon{cursor:help;line-height:1;font-size:1rem}
 .warning-public{color:#f85149}
+.warning-private{color:#3fb950}
 .warning-traefik{color:#58a6ff}
 .traefik-url{color:#58a6ff;text-decoration:none;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.15rem;padding:1px 4px;border-radius:3px;background:#1a2332}
 .traefik-url:hover{background:#21262d;text-decoration:underline}
@@ -67,6 +68,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .legend-item{display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap}
 .legend-icon{font-size:1rem;line-height:1}
 .legend-icon.legend-public{color:#f85149}
+.legend-icon.legend-private{color:#3fb950}
 .legend-icon.legend-traefik{color:#58a6ff}
 
 /* Nav */
@@ -76,6 +78,12 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .nav-tab{padding:0.4rem 0.9rem;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:0.85rem;transition:all 0.15s}
 .nav-tab:hover{color:#f0f2f5;background:#21262d}
 .nav-tab.active{color:#f0f2f5;background:#1f6feb;border-color:#1f6feb}
+.nav-separator{display:inline-block;width:1px;height:20px;background:#30363d;flex-shrink:0}
+.group-toggle{margin-left:0.5rem;border-color:#8b949e !important}
+.group-toggle.active{color:#f0f2f5 !important;background:#21262d !important;border-color:#8b949e !important}
+.copy-json-btn{margin-left:0.5rem;padding:0.4rem 0.9rem;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;cursor:pointer;font-size:0.85rem;transition:all 0.15s;white-space:nowrap}
+.copy-json-btn:hover{color:#0d1117;background:#3fb950}
+.copy-json-btn.copy-success{color:#0d1117;background:#3fb950;border-color:#3fb950}
 
 /* Icons page */
 .icon-search{margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem}
@@ -111,6 +119,75 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 
 /* Footer */
 .footer{text-align:center;padding:1.5rem;font-size:0.75rem;color:#6e7681;border-top:1px solid #21262d;margin-top:1.5rem}
+.footer-link{color:#6e7681;text-decoration:none;display:inline-flex;align-items:center;vertical-align:middle}
+.footer-link:hover{color:#f0f2f5}
+.footer-link svg{vertical-align:middle}
+
+/* ===== Traefik Dashboard Page ===== */
+.traefik-version-banner{margin-bottom:1.25rem;padding:1rem 1.25rem;background:#1a2332;border:1px solid #30363d;border-radius:8px;font-size:0.95rem;line-height:1.5}
+.traefik-version-banner strong{color:#f0f2f5;font-size:1.1rem}
+.traefik-version-banner .version-meta{color:#8b949e;font-size:0.85rem;margin-top:0.3rem}
+.traefik-version-banner .version-meta span{margin-right:1.5rem}
+.traefik-version-banner .traefik-source{display:block;margin-top:0.4rem;font-size:0.8rem;color:#6e7681;word-break:break-all}
+
+.traefik-stats{display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.5rem}
+.traefik-stat-card{flex:1 1 140px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.85rem 1rem;text-align:center}
+.traefik-stat-card .stat-count{font-size:1.6rem;font-weight:700;color:#f0f2f5}
+.traefik-stat-card .stat-label{font-size:0.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.2rem}
+.traefik-stat-card.stat-http .stat-count{color:#58a6ff}
+.traefik-stat-card.stat-tcp .stat-count{color:#d29922}
+.traefik-stat-card.stat-middleware .stat-count{color:#3fb950}
+.traefik-stat-card.stat-entrypoint .stat-count{color:#f0883e}
+
+.traefik-section{margin-bottom:1.5rem}
+.traefik-section h2{font-size:1.1rem;margin:0 0 0.6rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em}
+.traefik-section .section-subtitle{font-size:0.8rem;color:#6e7681;margin-top:-0.4rem;margin-bottom:0.75rem}
+
+.traefik-empty{text-align:center;padding:2rem;color:#6e7681;font-style:italic;background:#161b22;border:1px solid #30363d;border-radius:6px}
+
+.traefik-table-wrap{overflow-x:auto;background:#161b22;border:1px solid #30363d;border-radius:8px}
+.traefik-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.traefik-table th{padding:0.55rem 0.75rem;background:#1c2128;border-bottom:2px solid #30363d;color:#8b949e;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap}
+.traefik-table td{padding:0.5rem 0.75rem;border-bottom:1px solid #21262d;color:#e1e4e8;vertical-align:middle}
+.traefik-table tr:last-child td{border-bottom:none}
+.traefik-table tr:hover td{background:#1c2128}
+
+.status-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:0.75rem;font-weight:600;white-space:nowrap}
+.status-badge.enabled{color:#3fb950;background:#0a2e14}
+.status-badge.disabled{color:#6e7681;background:#1c2128}
+.status-badge.warning{color:#d29922;background:#2a1f0a}
+.status-badge.error{color:#f85149;background:#2f0e12}
+
+.server-up{display:inline-flex;align-items:center;gap:0.3rem;color:#3fb950;font-size:0.8rem;white-space:nowrap}
+.server-up::before{content:"";width:8px;height:8px;border-radius:50%;background:#3fb950;flex-shrink:0}
+.server-down{display:inline-flex;align-items:center;gap:0.3rem;color:#f85149;font-size:0.8rem;white-space:nowrap}
+.server-down::before{content:"";width:8px;height:8px;border-radius:50%;background:#f85149;flex-shrink:0}
+.server-unknown{display:inline-flex;align-items:center;gap:0.3rem;color:#8b949e;font-size:0.8rem;white-space:nowrap}
+.server-unknown::before{content:"";width:8px;height:8px;border-radius:50%;background:#8b949e;flex-shrink:0}
+
+.traefik-rule{font-family:monospace;font-size:0.8rem;color:#d29922;word-break:break-word}
+.traefik-service-name{font-weight:500;color:#58a6ff}
+.traefik-middleware-tag{display:inline-block;padding:1px 5px;margin:1px 2px;border-radius:3px;background:#1a2332;color:#8b949e;font-size:0.75rem;font-family:monospace}
+.traefik-entrypoint-tag{display:inline-block;padding:1px 5px;margin:1px 2px;border-radius:3px;background:#21262d;color:#8b949e;font-size:0.75rem;font-family:monospace}
+.traefik-tls-true{color:#3fb950;font-weight:600}
+.traefik-tls-false{color:#6e7681}
+
+.cert-table .cert-expired{color:#f85149;font-weight:600}
+.cert-table .cert-ok{color:#3fb950}
+.cert-table .cert-warning{color:#d29922}
+.cert-table .cert-domain{font-family:monospace;font-size:0.82rem}
+.cert-table .cert-subject{color:#8b949e;font-size:0.8rem}
+
+.traefik-error-banner{padding:1rem;background:#2f0e12;border:1px solid #f85149;border-radius:8px;color:#f0f2f5;margin-bottom:1rem;display:flex;align-items:flex-start;gap:0.75rem}
+.traefik-error-banner .err-icon{color:#f85149;font-size:1.2rem;flex-shrink:0;line-height:1}
+.traefik-error-banner .err-body{flex:1}
+.traefik-error-banner .err-title{font-weight:600;margin-bottom:0.3rem}
+.traefik-error-banner .err-detail{font-size:0.85rem;color:#8b949e}
+.traefik-error-banner .err-retry{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #f85149;background:transparent;color:#f85149;cursor:pointer;font-size:0.8rem;margin-top:0.5rem;transition:all 0.15s}
+.traefik-error-banner .err-retry:hover{background:#3d1116}
+
+.traefik-server-list{display:flex;flex-direction:column;gap:0.2rem}
+.traefik-server-list .server-item{font-size:0.8rem;font-family:monospace;word-break:break-all}
 </style>
 </head>
 <body>
@@ -119,19 +196,24 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="nav-tab" onclick="switchTab('icons')">Icons</button>
+    <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')" style="display:none">Traefik</button>
   </div>
+  <span class="nav-separator"></span>
+  <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group and compose project view">By Compose</button>
+  <button class="copy-json-btn" id="copy-json-btn" onclick="copyDashboardJSON()" title="Copy all dashboard data as JSON">Copy JSON</button>
 </div>
 
 <div id="page-dashboard">
 <div class="legend">
   <span class="legend-item"><span class="legend-icon legend-public">&#9650;</span> Public port binding</span>
+  <span class="legend-item"><span class="legend-icon legend-private">&#9679;</span> Private port binding</span>
   <span class="legend-item"><span class="legend-icon legend-traefik">&#128279;</span> Traefik enabled</span>
   <span class="legend-item"><span class="legend-icon">&#127760;</span> Traefik URL</span>
 </div>
 <div id="app">
   <div class="loading">Loading containers...</div>
 </div>
-<div class="footer">dumbdock <span id="version-display"></span></div>
+<div class="footer">dumbdock <span id="version-display"></span> · <a class="footer-link" href="https://github.com/jordantrizz/dumbdock" target="_blank" rel="noopener nofollow" aria-label="View on GitHub"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a></div>
 </div>
 
 <div id="page-icons" style="display:none">
@@ -144,14 +226,37 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   <div id="iconResults"></div>
 </div>
 
+<div id="page-traefik" style="display:none">
+  <div id="traefik-app">
+    <div class="loading">Loading Traefik status...</div>
+  </div>
+</div>
+
 <div id="detail-backdrop" class="detail-backdrop"></div>
 <script>
+let dashboardData = null;
+let composeGroupView = false;
 const expandedItems = new Set();
 async function load() {
   try {
     const res = await fetch('/api/containers');
     const data = await res.json();
+    dashboardData = data;
+    // Restore toggle state from localStorage after data loads.
+    if (localStorage.getItem('dumbdock-compose-view') === 'true') {
+      composeGroupView = true;
+      var btn = document.getElementById('group-toggle-btn');
+      if (btn) {
+        btn.textContent = 'By Group';
+        btn.classList.add('active');
+      }
+    }
     render(data);
+    // Show/hide the Traefik nav tab based on whether a Traefik container was detected.
+    var traefikTab = document.getElementById('nav-traefik');
+    if (traefikTab) {
+      traefikTab.style.display = data.hasTraefik ? '' : 'none';
+    }
   } catch (e) {
     document.getElementById('app').innerHTML = '<div class="error">Failed to load containers: ' + e.message + '</div>';
   }
@@ -160,26 +265,41 @@ async function load() {
 function render(data) {
   let html = '';
 
-  for (const group of data.groups) {
-    const cards = data.grouped[group];
-    html += '<h2>' + escapeHtml(group) + '</h2>';
-    html += '<div class="grid">';
-    for (const card of cards) {
-      html += renderCard(card);
+  if (composeGroupView && data.composeGrouped && data.composeProjects) {
+    for (const project of data.composeProjects) {
+      const cards = data.composeGrouped[project];
+      if (!cards || cards.length === 0) continue;
+      html += '<h2>' + escapeHtml(project) + ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + cards.length + ')</span></h2>';
+      html += '<div class="grid">';
+      for (const card of cards) {
+        html += renderCard(card);
+      }
+      html += '</div>';
     }
-    html += '</div>';
+  } else {
+    for (const group of data.groups) {
+      const cards = data.grouped[group];
+      html += '<h2>' + escapeHtml(group) + '</h2>';
+      html += '<div class="grid">';
+      for (const card of cards) {
+        html += renderCard(card);
+      }
+      html += '</div>';
+    }
+
+    if (data.unlabeled && data.unlabeled.length > 0) {
+      html += '<h2>Unlabeled <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + data.unlabeled.length + ')</span></h2>';
+      html += '<div class="unlabeled-list">';
+      for (const card of data.unlabeled) {
+        html += renderUnlabeled(card);
+      }
+      html += '</div>';
+    }
   }
 
-  if (data.unlabeled && data.unlabeled.length > 0) {
-    html += '<h2>Unlabeled <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + data.unlabeled.length + ')</span></h2>';
-    html += '<div class="unlabeled-list">';
-    for (const card of data.unlabeled) {
-      html += renderUnlabeled(card);
-    }
-    html += '</div>';
-  }
-
-  if (data.groups.length === 0 && (!data.unlabeled || data.unlabeled.length === 0)) {
+  var hasGroups = composeGroupView && data.composeProjects ? data.composeProjects.length > 0 : data.groups.length > 0;
+  var hasUnlabeled = composeGroupView ? false : data.unlabeled && data.unlabeled.length > 0;
+  if (!hasGroups && !hasUnlabeled) {
     html = '<div class="loading">No running containers found.</div>';
   }
 
@@ -267,6 +387,10 @@ function renderDetailSections(card) {
     const ips = card.publicBindingIPs && card.publicBindingIPs.length > 0 ? card.publicBindingIPs.join(', ') : '0.0.0.0';
     networkWarningsItems.push('<span class="unlabeled-info-key">&#9650; Public Binding</span><span class="unlabeled-info-value" style="color:#f85149">Bound to ' + escapeHtml(ips) + '</span>');
   }
+  if (card.hasPrivateBinding) {
+    const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Private Binding</span><span class="unlabeled-info-value" style="color:#3fb950">Bound to ' + escapeHtml(ips) + '</span>');
+  }
   if (card.traefikEnabled) {
     networkWarningsItems.push('<span class="unlabeled-info-key">&#128279; Traefik</span><span class="unlabeled-info-value" style="color:#58a6ff">Enabled on this container</span>');
   }
@@ -326,6 +450,10 @@ function renderCard(card) {
     const ips = card.publicBindingIPs && card.publicBindingIPs.length > 0 ? card.publicBindingIPs.join(', ') : 'non-localhost';
     warnings.push('<span class="warning-icon warning-public" title="Port bound to non-localhost IP: ' + escapeHtml(ips) + '">&#9650;</span>');
   }
+  if (card.hasPrivateBinding) {
+    const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
+    warnings.push('<span class="warning-icon warning-private" title="Port bound to private IP: ' + escapeHtml(ips) + '">&#9679;</span>');
+  }
   if (card.traefikEnabled) {
     warnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
   }
@@ -365,6 +493,10 @@ function renderUnlabeled(card) {
   if (card.hasPublicBinding) {
     const ips = card.publicBindingIPs && card.publicBindingIPs.length > 0 ? card.publicBindingIPs.join(', ') : 'non-localhost';
     unlabeledWarnings.push('<span class="warning-icon warning-public" title="Port bound to non-localhost IP: ' + escapeHtml(ips) + '">&#9650;</span>');
+  }
+  if (card.hasPrivateBinding) {
+    const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
+    unlabeledWarnings.push('<span class="warning-icon warning-private" title="Port bound to private IP: ' + escapeHtml(ips) + '">&#9679;</span>');
   }
   if (card.traefikEnabled) {
     unlabeledWarnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
@@ -432,7 +564,15 @@ function formatTimestamp(unix) {
 }
 
 load();
-setInterval(load, 10000);
+loadTraefik();
+setInterval(function() {
+  load();
+  // Only refresh Traefik data if the Traefik tab is currently visible.
+  var traefikPage = document.getElementById('page-traefik');
+  if (traefikPage && traefikPage.style.display !== 'none') {
+    loadTraefik();
+  }
+}, 10000);
 
 async function loadVersion() {
   try {
@@ -459,6 +599,65 @@ document.getElementById('detail-backdrop').addEventListener('click', function() 
   if (openCard) toggleCode(openCard.id);
 });
 
+// ---- Copy JSON ----
+function copyDashboardJSON() {
+  const btn = document.getElementById('copy-json-btn');
+  if (!dashboardData) {
+    btn.textContent = 'No data';
+    setTimeout(function() { btn.textContent = 'Copy JSON'; }, 2000);
+    return;
+  }
+  const json = JSON.stringify(dashboardData, null, 2);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(json).then(function() {
+      btn.textContent = 'Copied! \u2713';
+      btn.classList.add('copy-success');
+      setTimeout(function() {
+        btn.textContent = 'Copy JSON';
+        btn.classList.remove('copy-success');
+      }, 2000);
+    }).catch(function() {
+      btn.textContent = 'Failed';
+      setTimeout(function() { btn.textContent = 'Copy JSON'; }, 2000);
+    });
+  } else {
+    // Fallback for older browsers
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = json;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = 'Copied! \u2713';
+      btn.classList.add('copy-success');
+      setTimeout(function() {
+        btn.textContent = 'Copy JSON';
+        btn.classList.remove('copy-success');
+      }, 2000);
+    } catch (e) {
+      btn.textContent = 'Failed';
+      setTimeout(function() { btn.textContent = 'Copy JSON'; }, 2000);
+    }
+  }
+}
+
+// ---- Group view toggle ----
+function toggleGroupView() {
+  composeGroupView = !composeGroupView;
+  localStorage.setItem('dumbdock-compose-view', composeGroupView ? 'true' : '');
+  var btn = document.getElementById('group-toggle-btn');
+  if (btn) {
+    btn.textContent = composeGroupView ? 'By Group' : 'By Compose';
+    btn.classList.toggle('active', composeGroupView);
+  }
+  if (dashboardData) {
+    render(dashboardData);
+  }
+}
+
 // ---- Tab switching ----
 let iconsData = null;
 
@@ -473,9 +672,16 @@ function switchTab(tab) {
   if (tab === 'dashboard') {
     document.querySelector('.nav-tab:first-child').classList.add('active');
     document.getElementById('page-dashboard').style.display = '';
+    document.getElementById('copy-json-btn').style.display = '';
+  } else if (tab === 'traefik') {
+    document.getElementById('nav-traefik').classList.add('active');
+    document.getElementById('page-traefik').style.display = '';
+    document.getElementById('copy-json-btn').style.display = 'none';
+    loadTraefik();
   } else {
     document.querySelectorAll('.nav-tab')[1].classList.add('active');
     document.getElementById('page-icons').style.display = '';
+    document.getElementById('copy-json-btn').style.display = 'none';
     if (!iconsData) {
       loadIcons();
     }
@@ -650,6 +856,256 @@ function renderIconTable(append) {
     }
     iconObserver.observe(sentinel);
   }
+}
+
+// ===== Traefik Dashboard =====
+
+async function loadTraefik() {
+  var container = document.getElementById('traefik-app');
+  try {
+    var res = await fetch('/api/traefik');
+    var data = await res.json();
+    renderTraefik(data);
+  } catch (e) {
+    container.innerHTML = '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Failed to load Traefik status</div><div class="err-detail">' + escapeHtml(e.message) + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
+  }
+}
+
+function renderTraefik(resp) {
+  var container = document.getElementById('traefik-app');
+
+  if (!resp.found) {
+    container.innerHTML = '<div class="traefik-empty">No Traefik container detected. Start a container with \"traefik\" in the image name.</div>';
+    return;
+  }
+
+  var html = '';
+
+  // Error banner (if API is unreachable)
+  if (resp.error && !resp.data) {
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Traefik container detected but API is not accessible</div><div class="err-detail">' + escapeHtml(resp.error) + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
+    container.innerHTML = html;
+    return;
+  }
+
+  if (!resp.data) {
+    container.innerHTML = '<div class="traefik-empty">No Traefik data available.</div>';
+    return;
+  }
+
+  var d = resp.data;
+
+  // --- Version banner ---
+  if (d.version) {
+    html += '<div class="traefik-version-banner"><strong>Traefik ' + escapeHtml(d.version.version) + '</strong>';
+    if (d.version.codename) {
+      html += ' (' + escapeHtml(d.version.codename) + ')';
+    }
+    html += '<div class="version-meta">';
+    if (d.version.startDate) {
+      html += '<span>Started: ' + escapeHtml(d.version.startDate) + '</span>';
+    }
+    if (d.version.goversion) {
+      html += '<span>Go: ' + escapeHtml(d.version.goversion) + '</span>';
+    }
+    html += '</div>';
+    if (d.apiUrl) {
+      html += '<span class="traefik-source">API: ' + escapeHtml(d.apiUrl) + (d.authConfigured ? ' (authenticated)' : '') + '</span>';
+    }
+    html += '</div>';
+  }
+
+  // --- Endpoint errors info ---
+  if (d.endpointErrors && Object.keys(d.endpointErrors).length > 0) {
+    var errKeys = Object.keys(d.endpointErrors);
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Some Traefik API endpoints returned errors</div><div class="err-detail">' + errKeys.join(', ') + ' — showing partial data</div></div></div>';
+  }
+
+  // --- Overview stats ---
+  if (d.overview) {
+    html += '<div class="traefik-stats">';
+    html += statCard(d.overview.http.routers, 'HTTP Routers', 'stat-http');
+    html += statCard(d.overview.http.services, 'HTTP Services', 'stat-http');
+    html += statCard(d.overview.http.middlewares, 'HTTP Middlewares', 'stat-middleware');
+    html += statCard(d.overview.tcp.routers, 'TCP Routers', 'stat-tcp');
+    html += statCard(d.overview.tcp.services, 'TCP Services', 'stat-tcp');
+    html += statCard((d.entrypoints || []).length, 'Entrypoints', 'stat-entrypoint');
+    html += '</div>';
+  }
+
+  // --- Entrypoints ---
+  if (d.entrypoints && d.entrypoints.length > 0) {
+    html += '<div class="traefik-section"><h2>Entrypoints</h2>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Name</th><th>Address</th></tr></thead><tbody>';
+    for (var ep of d.entrypoints) {
+      html += '<tr><td><strong>' + escapeHtml(ep.name) + '</strong></td><td><code>' + escapeHtml(ep.address) + '</code></td></tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.entrypoints) {
+    html += '<div class="traefik-section"><h2>Entrypoints</h2><div class="traefik-empty">Not available</div></div>';
+  }
+
+  // --- HTTP Routers ---
+  if (d.httpRouters && d.httpRouters.length > 0) {
+    html += '<div class="traefik-section"><h2>HTTP Routers</h2>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Name</th><th>Status</th><th>Rule</th><th>Service</th><th>EntryPoints</th><th>Middlewares</th><th>TLS</th></tr></thead><tbody>';
+    for (var r of d.httpRouters) {
+      html += '<tr>';
+      html += '<td>' + escapeHtml(r.name) + '</td>';
+      html += '<td>' + statusBadge(r.status) + '</td>';
+      html += '<td class="traefik-rule">' + escapeHtml(r.rule) + '</td>';
+      html += '<td class="traefik-service-name">' + escapeHtml(r.service) + '</td>';
+      html += '<td>' + (r.entryPoints || []).map(function(e) { return '<span class="traefik-entrypoint-tag">' + escapeHtml(e) + '</span>'; }).join(' ') + '</td>';
+      html += '<td>' + (r.middlewares || []).map(function(m) { return '<span class="traefik-middleware-tag">' + escapeHtml(m) + '</span>'; }).join(' ') + '</td>';
+      html += '<td>' + (r.tls ? '<span class="traefik-tls-true">&#10003;</span>' : '<span class="traefik-tls-false">&mdash;</span>') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.httpRouters) {
+    html += '<div class="traefik-section"><h2>HTTP Routers</h2><div class="traefik-empty">Not available</div></div>';
+  }
+
+  // --- HTTP Services ---
+  if (d.httpServices && d.httpServices.length > 0) {
+    html += '<div class="traefik-section"><h2>HTTP Services</h2>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Name</th><th>Status</th><th>Type</th><th>Servers</th></tr></thead><tbody>';
+    for (var s of d.httpServices) {
+      html += '<tr>';
+      html += '<td class="traefik-service-name">' + escapeHtml(s.name) + '</td>';
+      html += '<td>' + statusBadge(s.status) + '</td>';
+      html += '<td>' + escapeHtml(s.type) + '</td>';
+      html += '<td>' + renderServerStatus(s.serverStatus) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.httpServices) {
+    html += '<div class="traefik-section"><h2>HTTP Services</h2><div class="traefik-empty">Not available</div></div>';
+  }
+
+  // --- Middlewares ---
+  if (d.middlewares && d.middlewares.length > 0) {
+    html += '<div class="traefik-section"><h2>Middlewares</h2>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Name</th><th>Type</th><th>Status</th></tr></thead><tbody>';
+    for (var m of d.middlewares) {
+      html += '<tr>';
+      html += '<td><code>' + escapeHtml(m.name) + '</code></td>';
+      html += '<td>' + escapeHtml(m.type) + '</td>';
+      html += '<td>' + statusBadge(m.status) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.middlewares) {
+    html += '<div class="traefik-section"><h2>Middlewares</h2><div class="traefik-empty">Not available</div></div>';
+  }
+
+  // --- TCP Routers ---
+  if (d.tcpRouters && d.tcpRouters.length > 0) {
+    html += '<div class="traefik-section"><h2>TCP Routers</h2>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Name</th><th>Status</th><th>Rule</th><th>Service</th><th>EntryPoints</th><th>TLS</th></tr></thead><tbody>';
+    for (var r of d.tcpRouters) {
+      html += '<tr>';
+      html += '<td>' + escapeHtml(r.name) + '</td>';
+      html += '<td>' + statusBadge(r.status) + '</td>';
+      html += '<td class="traefik-rule">' + escapeHtml(r.rule) + '</td>';
+      html += '<td class="traefik-service-name">' + escapeHtml(r.service) + '</td>';
+      html += '<td>' + (r.entryPoints || []).map(function(e) { return '<span class="traefik-entrypoint-tag">' + escapeHtml(e) + '</span>'; }).join(' ') + '</td>';
+      html += '<td>' + (r.tls ? '<span class="traefik-tls-true">&#10003;</span>' : '<span class="traefik-tls-false">&mdash;</span>') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.tcpRouters) {
+    html += '<div class="traefik-section"><h2>TCP Routers</h2><div class="traefik-empty">Not available</div></div>';
+  }
+
+  // --- TCP Services ---
+  if (d.tcpServices && d.tcpServices.length > 0) {
+    html += '<div class="traefik-section"><h2>TCP Services</h2>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Name</th><th>Status</th><th>Type</th><th>Servers</th></tr></thead><tbody>';
+    for (var s of d.tcpServices) {
+      html += '<tr>';
+      html += '<td class="traefik-service-name">' + escapeHtml(s.name) + '</td>';
+      html += '<td>' + statusBadge(s.status) + '</td>';
+      html += '<td>' + escapeHtml(s.type) + '</td>';
+      html += '<td>' + renderServerStatus(s.serverStatus) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.tcpServices) {
+    html += '<div class="traefik-section"><h2>TCP Services</h2><div class="traefik-empty">Not available</div></div>';
+  }
+
+  // --- TLS Certificates ---
+  if (d.tlsCerts && d.tlsCerts.length > 0) {
+    html += '<div class="traefik-section"><h2>TLS Certificates</h2>';
+    html += '<div class="traefik-table-wrap cert-table"><table class="traefik-table"><thead><tr><th>Name</th><th>Domains</th><th>Subject</th><th>Expires</th><th>Stores</th></tr></thead><tbody>';
+    for (var cert of d.tlsCerts) {
+      var expiryClass = 'cert-ok';
+      var expiryText = escapeHtml(cert.notAfter || 'Unknown');
+      if (cert.notAfter) {
+        var expires = new Date(cert.notAfter);
+        var now = new Date();
+        var daysLeft = Math.floor((expires - now) / (1000 * 60 * 60 * 24));
+        if (daysLeft < 0) {
+          expiryClass = 'cert-expired';
+          expiryText = 'EXPIRED ' + escapeHtml(cert.notAfter);
+        } else if (daysLeft < 30) {
+          expiryClass = 'cert-warning';
+          expiryText = escapeHtml(cert.notAfter) + ' (' + daysLeft + ' days)';
+        } else {
+          expiryText = escapeHtml(cert.notAfter) + ' (' + daysLeft + ' days)';
+        }
+      }
+      var domains = (cert.domains || []).map(function(d) {
+        var s = escapeHtml(d.main);
+        if (d.sans && d.sans.length > 0) {
+          s += ' <span style="color:#6e7681;font-size:0.75rem">[+' + d.sans.length + ' SANs]</span>';
+        }
+        return '<div class="cert-domain">' + s + '</div>';
+      }).join('');
+      var subject = cert.subject && cert.subject.commonName ? escapeHtml(cert.subject.commonName) : '<span style="color:#6e7681">N/A</span>';
+      html += '<tr>';
+      html += '<td>' + escapeHtml(cert.name) + '</td>';
+      html += '<td>' + domains + '</td>';
+      html += '<td class="cert-subject">' + subject + '</td>';
+      html += '<td class="' + expiryClass + '">' + expiryText + '</td>';
+      html += '<td>' + (cert.stores || []).map(function(s) { return '<span class="traefik-entrypoint-tag">' + escapeHtml(s) + '</span>'; }).join(' ') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  } else if (d.endpointErrors && d.endpointErrors.tlsCerts) {
+    html += '<div class="traefik-section"><h2>TLS Certificates</h2><div class="traefik-empty">Not configured</div></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function statCard(count, label, cls) {
+  return '<div class="traefik-stat-card ' + (cls || '') + '"><div class="stat-count">' + count + '</div><div class="stat-label">' + label + '</div></div>';
+}
+
+function statusBadge(status) {
+  if (!status) return '<span class="status-badge disabled">Unknown</span>';
+  var s = status.toLowerCase();
+  if (s === 'enabled') return '<span class="status-badge enabled">Enabled</span>';
+  if (s === 'disabled') return '<span class="status-badge disabled">Disabled</span>';
+  if (s === 'warning') return '<span class="status-badge warning">Warning</span>';
+  if (s === 'error') return '<span class="status-badge error">Error</span>';
+  return '<span class="status-badge enabled">' + escapeHtml(status) + '</span>';
+}
+
+function renderServerStatus(serverStatus) {
+  if (!serverStatus || Object.keys(serverStatus).length === 0) {
+    return '<span style="color:#6e7681;font-size:0.8rem">None</span>';
+  }
+  var items = [];
+  for (var url in serverStatus) {
+    var status = serverStatus[url];
+    var cls = 'server-unknown';
+    if (status === 'UP') cls = 'server-up';
+    else if (status === 'DOWN') cls = 'server-down';
+    items.push('<div class="server-item ' + cls + '">' + escapeHtml(url) + '</div>');
+  }
+  return '<div class="traefik-server-list">' + items.join('') + '</div>';
 }
 
 </script>

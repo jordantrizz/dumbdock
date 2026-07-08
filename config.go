@@ -23,6 +23,7 @@ type overrideConfig struct {
 	ContainerBlacklist         []string                `json:"containerBlacklist,omitempty"`
 	Containers                 map[string]cardOverride  `json:"containers"`
 	IconSets                   []IconSetConfig         `json:"iconSets,omitempty"`
+	TraefikAPIToken            string                  `json:"traefikAPIToken,omitempty"`
 }
 
 func loadConfig(path string) (*overrideConfig, error) {

@@ -48,10 +48,10 @@ No auth on dashboard — rely on reverse proxy or add Basic/Bearer auth.
 ## Versioning
 
 * The `VERSION` file at the repo root is the single source of truth for the semantic version string (e.g., `0.0.1`). It is embedded at compile time via `//go:embed VERSION`.
-* The build number is derived from `git rev-list --count HEAD` at build time and injected via ldflags (`-X main.buildNumber=$(git rev-list --count HEAD)`). Local `go build` defaults the build number to `"0"`.
+* The build number is derived from `git rev-parse --short HEAD` (short commit SHA) at build time and injected via ldflags (`-X main.buildNumber=$(git rev-parse --short HEAD)`). Local `go build` defaults the build number to `"0"`.
 * To bump the version: edit `VERSION`, commit, tag with `v<version>` (e.g., `v0.0.1`), and build.
 * The existing `version` ldflags variable (git SHA + timestamp) is kept unchanged for ETag / cache-busting purposes and is independent of the semantic version.
 * Version info is exposed via:
-  - `GET /api/version` endpoint returning `{"version":"<semver>","build":"<count>"}`
-  - Dashboard UI footer showing `v<semver> (build <count>)`
-  - Startup log line: `dumbdock v<semver> (build <count>)`
+  - `GET /api/version` endpoint returning `{"version":"<semver>","build":"<sha>"}`
+  - Dashboard UI footer showing `v<semver> (build <sha>)`
+  - Startup log line: `dumbdock v<semver> (build <sha>)`

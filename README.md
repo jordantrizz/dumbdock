@@ -2,6 +2,8 @@
 
 A simple, no-frills web dashboard for your Docker containers. dumbdock shows a clean overview of your running containers, grouped and organized with custom labels — and alerts you when new unlabeled containers appear.
 
+> **🤖 AI-Assisted Development:** This project was developed with AI assistance. All AI-generated code has been reviewed by a human. See [AI-Assisted Development](#ai-assisted-development) below for details.
+
 ![screenshot](https://img.shields.io/badge/status-stable-brightgreen)
 ![go](https://img.shields.io/badge/go-1.22-blue)
 ![docker](https://img.shields.io/badge/docker-ready-2496ED)
@@ -18,6 +20,7 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Alert notifications** — get notified via [ntfy.sh](https://ntfy.sh) or [Gotify](https://gotify.net) when new unlabeled containers are detected, with configurable cooldown.
 - **Password protection** — optional HTTP Basic Authentication via the `DUMBDOCK_PASSWORD` environment variable. When set, all dashboard and API access requires the password (any username accepted).
 - **Network Warnings** — identifies containers with ports exposed on non-localhost IPs (▲) and surfaces [Traefik](https://traefik.io) proxy configuration (🔗) with clickable URLs extracted from `traefik.http.routers.*.rule` labels.
+- **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
 - **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `scratch`.
 - **Cache-aware HTTP headers** — serves the dashboard HTML with `ETag` and `Cache-Control: no-cache` headers, and API responses with `Cache-Control: no-cache`. The ETag is derived from a build-time version string (Git SHA + timestamp) injected via ldflags, enabling browsers to revalidate efficiently with `304 Not Modified`. Version defaults to `"dev"` for local builds; Docker builds automatically get a version tag.
 
@@ -55,7 +58,7 @@ go build -o dumbdock .
 ./dumbdock
 ```
 
-The embedded version (from `VERSION`) and an API endpoint (`/api/version`) let you check which build is running. For Docker builds a build number based on `git rev-list --count HEAD` is also injected — local builds default to build `"0"`.
+The embedded version (from `VERSION`) and an API endpoint (`/api/version`) let you check which build is running. For Docker builds a build number based on `git rev-parse --short HEAD` (short commit SHA) is also injected — local builds default to build `"0"`.
 
 ## Labeling Containers
 
@@ -126,6 +129,50 @@ volumes:
   - ./dumbdock.json:/config/dumbdock.json:ro
 ```
 
+## Traefik Dashboard
+
+When a running Traefik container is detected (image name containing "traefik"), dumbdock adds a **Traefik** tab to the navigation bar. Clicking it displays a full status dashboard fetched from the Traefik API.
+
+### Auto-Discovery
+
+dumbdock automatically finds the Traefik API URL using a fallback chain:
+
+1. **`dumbdock.traefik.api` label** — if the Traefik container has this Docker label, the value is used as-is.
+2. **`TRAEFIK_API_URL` environment variable** — set on the dumbdock container (not Traefik).
+3. **Docker network IP** — reads the container's IP address from its first Docker network and appends port `:8080`. If the container's command specifies a custom entrypoint port (`--entrypoints.traefik.address=:PORT`), that port is used instead.
+4. **Published port** — falls back to the first published TCP port on `127.0.0.1` (preferring 8080).
+
+If none of these succeed, no Traefik tab appears.
+
+### Data Displayed
+
+Once the API URL is resolved, dumbdock fetches these Traefik API endpoints concurrently:
+
+| Endpoint | Data Shown |
+|----------|------------|
+| `/api/version` | Version, codename, start date, Go version |
+| `/api/overview` | Counts of HTTP/TCP routers, services, middlewares |
+| `/api/entrypoints` | Entrypoint names and addresses |
+| `/api/http/routers` | Router name, status, rule, service, entrypoints, middlewares, TLS |
+| `/api/http/services` | Service name, status, type, per-server health (UP/DOWN) |
+| `/api/http/middlewares` | Middleware name, type, status |
+| `/api/tcp/routers` | TCP router name, status, rule, service, entrypoints, TLS |
+| `/api/tcp/services` | TCP service name, status, type, per-server health |
+| `/api/tls/certificates` | Certificate name, domains, subject, expiry, stores |
+
+Individual endpoint errors are reported gracefully — if an endpoint returns a 404 (e.g., no TLS certificates configured), a "Not available" or "Not configured" message is shown instead of breaking the whole page.
+
+### API Authentication
+
+Traefik's API can be secured. dumbdock supports two auth modes:
+
+- **Bearer token** — set `TRAEFIK_API_TOKEN` (env var) or `traefikAPIToken` (config file).
+- **Basic auth** — set `TRAEFIK_API_USER` and `TRAEFIK_API_PASS` env vars.
+
+The auth header is added server-side only — credentials never reach the browser.
+
+> **Note:** The Traefik tab only shows when a running container with "traefik" in its image name is detected. If Traefik stops, the tab disappears on the next poll cycle.
+
 ## Alerts
 
 dumbdock can notify you when new unlabeled containers appear.
@@ -171,6 +218,10 @@ environment:
 | `AUTO_DETECTION_SERVICE_BLACKLIST` | `"server,db,app"` | Comma-separated list of compose service names to skip when trying service-name-based icon matching (e.g., `"server"`, `"server,db,app"`). Generic names are unreliable for icon matching; the container still goes through other fallbacks. |
 | `CONTAINER_BLACKLIST` | *(empty)* | Comma-separated list of container names to hide entirely from the dashboard (e.g., `"dumbdock","traefik"`). Useful for excluding infrastructure containers. |
 | `DUMBDOCK_PASSWORD` | *(empty)* | Enables HTTP Basic Authentication on the dashboard and API. When set, any username is accepted but the password must match this value. Leave empty for no auth. |
+| `TRAEFIK_API_URL` | *(empty)* | Explicit Traefik API base URL. Overrides auto-discovery. |
+| `TRAEFIK_API_TOKEN` | *(empty)* | Bearer token for Traefik API authentication (sent as `Authorization: Bearer <token>`). Also accepted via `traefikAPIToken` in the config file. |
+| `TRAEFIK_API_USER` | *(empty)* | Username for Traefik Basic auth (use with `TRAEFIK_API_PASS`). |
+| `TRAEFIK_API_PASS` | *(empty)* | Password for Traefik Basic auth (use with `TRAEFIK_API_USER`). |
 
 ## Icons
 
@@ -284,7 +335,42 @@ The `/api/containers` response includes these warning fields per card:
 
 ## API
 
-dumbdock exposes a single JSON API endpoint:
+dumbdock exposes these JSON API endpoints:
+
+**`GET /api/containers`**
+
+Returns all container cards, groups, and detection status. In addition to per-card fields, the top-level response includes `hasTraefik: true` when a Traefik container is running.
+
+**`GET /api/traefik`**
+
+Returns Traefik detection and status data:
+
+```json
+{
+  "found": true,
+  "apiUrl": "http://172.17.0.2:8080",
+  "error": "",
+  "data": {
+    "apiUrl": "http://172.17.0.2:8080",
+    "authConfigured": false,
+    "version": {"version": "v3.0", "codename": "...", "startDate": "...", "goversion": "..."},
+    "overview": {
+      "http": {"routers": 5, "services": 5, "middlewares": 2},
+      "tcp": {"routers": 0, "services": 0, "middlewares": 0}
+    },
+    "entrypoints": [{"name": "web", "address": ":80"}, ...],
+    "httpRouters": [...],
+    "httpServices": [...],
+    "middlewares": [...],
+    "tcpRouters": [...],
+    "tcpServices": [...],
+    "tlsCerts": [...],
+    "endpointErrors": {}
+  }
+}
+```
+
+When no Traefik container is found, `found` is `false` and `data` is `null`.
 
 **`GET /api/containers`**
 
@@ -326,11 +412,27 @@ go build -o dumbdock .
 ├── alerts.go        # ntfy.sh and Gotify alert notifications
 ├── icons.go         # Icon set abstraction, index fetching, and resolution
 ├── icons.json       # Default image-name → icon-slug mappings for selfhst set
+├── traefik.go       # Traefik container detection, Docker inspect, API client
+├── warnings.go      # Port binding and Traefik label parsing
 ├── index.html       # Embedded single-page UI
 ├── Dockerfile       # Multi-stage build (golang → scratch)
 ├── docker-compose.yml.example
 └── rebuild.sh       # Helper to rebuild and restart
 ```
+
+> This project uses AI-assisted development. See [AI-Assisted Development](#ai-assisted-development).
+
+## AI-Assisted Development
+
+This project was developed with the assistance of AI coding tools. AI was used for code generation, debugging, documentation, and architecture decisions across the entire codebase — including the Go backend, frontend dashboard, Docker tooling, and security analysis.
+
+**All AI-generated code has been reviewed, tested, and validated by a human** before being merged. The project includes:
+
+- A documented [security review](security.md) identifying and triaging potential vulnerabilities
+- Manual verification of AI-generated logic against Docker API behavior
+- Review of all AI-authored documentation for accuracy
+
+For AI agents and tools that may interact with this repository, see [AGENTS.md](AGENTS.md).
 
 ## License
 

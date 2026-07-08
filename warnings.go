@@ -1,35 +1,64 @@
 package main
 
 import (
+	"net"
 	"sort"
 	"strings"
 )
 
-// checkPortBindings examines the host IP for each port binding. If any port
-// is bound to an IP that is not 127.0.0.1 or ::1 (including 0.0.0.0, which
-// Docker reports as an empty IP string), the container is flagged as having
-// a public binding.
-func checkPortBindings(ports []dockerPort) (hasPublic bool, ips []string) {
-	seen := make(map[string]bool)
+// isPrivateIP checks if an IP address falls within a private or shared
+// address space. It covers RFC 1918 (10.0.0.0/8, 172.16.0.0/12,
+// 192.168.0.0/16), RFC 4193 (fc00::/7), and RFC 6598 Carrier-Grade NAT
+// (100.64.0.0/10). Go's net.IP.IsPrivate() covers the first two but
+// not CGNAT, so we check that range explicitly.
+func isPrivateIP(ip net.IP) bool {
+	// Pre-parsed CIDR for 100.64.0.0/10 (RFC 6598 Carrier-Grade NAT).
+	// Go's IsPrivate() does not cover this range.
+	cgnat := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
+	return ip.IsPrivate() || cgnat.Contains(ip)
+}
+
+// checkPortBindings examines the host IP for each port binding. Ports
+// bound to 127.0.0.1 or ::1 are ignored (local-only). Ports bound to
+// private IPs (RFC 1918, RFC 4193, RFC 6598 CGNAT) are classified as
+// private. All other non-localhost bindings (including 0.0.0.0) are
+// classified as public.
+func checkPortBindings(ports []dockerPort) (hasPublic bool, ips []string, hasPrivate bool, privateIPs []string) {
+	seenPublic := make(map[string]bool)
+	seenPrivate := make(map[string]bool)
 	for _, p := range ports {
-		// Ports with PublicPort == 0 are exposed but not published/bound
-		// to the host. Skip them to avoid false positives.
 		if p.PublicPort == 0 {
 			continue
 		}
 		ip := p.IP
 		if ip == "" {
-			// Docker reports 0.0.0.0 as an empty IP string in
-			// /containers/json. Treat it as a public binding.
 			ip = "0.0.0.0"
 		}
 		if ip == "127.0.0.1" || ip == "::1" {
 			continue
 		}
-		hasPublic = true
-		if !seen[ip] {
-			seen[ip] = true
-			ips = append(ips, ip)
+		parsed := net.ParseIP(ip)
+		if parsed == nil {
+			// Unparseable IP — treat as public to be safe.
+			hasPublic = true
+			if !seenPublic[ip] {
+				seenPublic[ip] = true
+				ips = append(ips, ip)
+			}
+			continue
+		}
+		if isPrivateIP(parsed) {
+			hasPrivate = true
+			if !seenPrivate[ip] {
+				seenPrivate[ip] = true
+				privateIPs = append(privateIPs, ip)
+			}
+		} else {
+			hasPublic = true
+			if !seenPublic[ip] {
+				seenPublic[ip] = true
+				ips = append(ips, ip)
+			}
 		}
 	}
 	return

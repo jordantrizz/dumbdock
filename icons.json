@@ -5,6 +5,8 @@
   "adguardhome": "adguard-home",
   "argocd": "argo-cd",
   "calibree": "calibre-web",
+  "docker-proxy-socket": "docker",
+  "docker-socket-proxy": "docker",
   "fireflyiii": "firefly-iii",
   "gitlab-ce": "gitlab",
   "ha": "home-assistant",

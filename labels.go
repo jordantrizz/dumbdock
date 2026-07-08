@@ -15,6 +15,9 @@ type containerCard struct {
 	Description string `json:"description"`
 	Order       int    `json:"order"`
 
+	// ComposeProject is extracted from com.docker.compose.project label.
+	ComposeProject string `json:"composeProject,omitempty"`
+
 	ContainerID   string            `json:"containerId"`
 	ContainerName string            `json:"containerName"`
 	Image         string            `json:"image"`
@@ -28,10 +31,12 @@ type containerCard struct {
 	AutoDetectFailedReason string `json:"autoDetectFailedReason,omitempty"`
 
 	// Network warnings
-	HasPublicBinding bool     `json:"hasPublicBinding"`
-	PublicBindingIPs []string `json:"publicBindingIPs,omitempty"`
-	TraefikEnabled   bool     `json:"traefikEnabled"`
-	TraefikURLs      []string `json:"traefikURLs,omitempty"`
+	HasPublicBinding  bool     `json:"hasPublicBinding"`
+	PublicBindingIPs  []string `json:"publicBindingIPs,omitempty"`
+	HasPrivateBinding bool     `json:"hasPrivateBinding"`
+	PrivateBindingIPs []string `json:"privateBindingIPs,omitempty"`
+	TraefikEnabled    bool     `json:"traefikEnabled"`
+	TraefikURLs       []string `json:"traefikURLs,omitempty"`
 }
 
 func parseLabels(labels map[string]string) containerCard {

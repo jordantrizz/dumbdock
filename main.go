@@ -34,10 +34,15 @@ var appVersion = strings.TrimSpace(versionFileContent)
 var buildNumber = "0"
 
 type cardResponse struct {
-	Cards      []containerCard `json:"cards"`
-	Unlabeled  []containerCard `json:"unlabeled"`
-	Groups     []string        `json:"groups"`
+	Cards      []containerCard           `json:"cards"`
+	Unlabeled  []containerCard           `json:"unlabeled"`
+	Groups     []string                  `json:"groups"`
 	Grouped    map[string][]containerCard `json:"grouped"`
+	HasTraefik bool                      `json:"hasTraefik"`
+
+	// Compose project grouping (alternative view)
+	ComposeGrouped  map[string][]containerCard `json:"composeGrouped,omitempty"`
+	ComposeProjects []string                   `json:"composeProjects,omitempty"`
 }
 
 func main() {
@@ -76,6 +81,8 @@ func main() {
 	var unlabeled []containerCard
 	var groups []string
 	var grouped map[string][]containerCard
+	var composeGrouped map[string][]containerCard
+	var composeProjects []string
 
 	refresh := func() {
 		containers, err := fetchContainers(client)
@@ -104,9 +111,10 @@ func main() {
 			card.State = c.State
 			card.Ports = formatPorts(c.Ports)
 			card.Labels = c.Labels
+			card.ComposeProject = c.Labels["com.docker.compose.project"]
 			card.Created = c.Created
 
-			card.HasPublicBinding, card.PublicBindingIPs = checkPortBindings(c.Ports)
+			card.HasPublicBinding, card.PublicBindingIPs, card.HasPrivateBinding, card.PrivateBindingIPs = checkPortBindings(c.Ports)
 			card.TraefikEnabled, card.TraefikURLs = parseTraefikLabels(c.Labels)
 
 			if card.Icon == "" {
@@ -223,6 +231,9 @@ func main() {
 			unlabeled = stillUnlabeled
 		}
 
+		// Traefik container detection and status fetch.
+		refreshTraefik(client, containers, cfg)
+
 		for _, cards := range grouped {
 			sort.Slice(cards, func(i, j int) bool {
 				return strings.ToLower(cards[i].Name) < strings.ToLower(cards[j].Name)
@@ -237,6 +248,29 @@ func main() {
 			groups = append(groups, g)
 		}
 		sort.Strings(groups)
+
+		// Build compose-project grouped data (alternative grouping view).
+		composeGrouped = make(map[string][]containerCard)
+		allContainers := append([]containerCard{}, cards...)
+		allContainers = append(allContainers, unlabeled...)
+		for _, card := range allContainers {
+			project := card.ComposeProject
+			if project == "" {
+				project = "Standalone"
+			}
+			composeGrouped[project] = append(composeGrouped[project], card)
+		}
+		composeProjects = make([]string, 0, len(composeGrouped))
+		for p := range composeGrouped {
+			composeProjects = append(composeProjects, p)
+		}
+		sort.Strings(composeProjects)
+		// Sort cards within each compose project group by name.
+		for _, cards := range composeGrouped {
+			sort.Slice(cards, func(i, j int) bool {
+				return strings.ToLower(cards[i].Name) < strings.ToLower(cards[j].Name)
+			})
+		}
 
 		if alerts.enabled() {
 			alerts.checkNew(unlabeled)
@@ -257,12 +291,28 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
 		resp := cardResponse{
-			Cards:     cards,
-			Unlabeled: unlabeled,
-			Groups:    groups,
-			Grouped:   grouped,
+			Cards:      cards,
+			Unlabeled:  unlabeled,
+			Groups:     groups,
+			Grouped:    grouped,
+			HasTraefik: traefikContainerFound,
+
+			ComposeGrouped:  composeGrouped,
+			ComposeProjects: composeProjects,
 		}
 		json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		found, url, data, errStr := getTraefikState()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"found":  found,
+			"apiUrl": url,
+			"data":   data,
+			"error":  errStr,
+		})
 	})
 
 	mux.HandleFunc("GET /api/icons", func(w http.ResponseWriter, r *http.Request) {
