@@ -19,13 +19,14 @@ func isPrivateIP(ip net.IP) bool {
 }
 
 // checkPortBindings examines the host IP for each port binding. Ports
-// bound to 127.0.0.1 or ::1 are ignored (local-only). Ports bound to
-// private IPs (RFC 1918, RFC 4193, RFC 6598 CGNAT) are classified as
-// private. All other non-localhost bindings (including 0.0.0.0) are
-// classified as public.
-func checkPortBindings(ports []dockerPort) (hasPublic bool, ips []string, hasPrivate bool, privateIPs []string) {
+// bound to 127.0.0.1 or ::1 are classified as local (shown as green ●).
+// Ports bound to private IPs (RFC 1918, RFC 4193, RFC 6598 CGNAT) are
+// classified as private (shown as yellow ●). All other bindings
+// (including 0.0.0.0) are classified as public (shown as red ▲).
+func checkPortBindings(ports []dockerPort) (hasPublic bool, ips []string, hasPrivate bool, privateIPs []string, hasLocal bool, localIPs []string) {
 	seenPublic := make(map[string]bool)
 	seenPrivate := make(map[string]bool)
+	seenLocal := make(map[string]bool)
 	for _, p := range ports {
 		if p.PublicPort == 0 {
 			continue
@@ -35,6 +36,11 @@ func checkPortBindings(ports []dockerPort) (hasPublic bool, ips []string, hasPri
 			ip = "0.0.0.0"
 		}
 		if ip == "127.0.0.1" || ip == "::1" {
+			hasLocal = true
+			if !seenLocal[ip] {
+				seenLocal[ip] = true
+				localIPs = append(localIPs, ip)
+			}
 			continue
 		}
 		parsed := net.ParseIP(ip)

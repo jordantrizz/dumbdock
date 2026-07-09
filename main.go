@@ -114,7 +114,7 @@ func main() {
 			card.ComposeProject = c.Labels["com.docker.compose.project"]
 			card.Created = c.Created
 
-			card.HasPublicBinding, card.PublicBindingIPs, card.HasPrivateBinding, card.PrivateBindingIPs = checkPortBindings(c.Ports)
+			card.HasPublicBinding, card.PublicBindingIPs, card.HasPrivateBinding, card.PrivateBindingIPs, card.HasLocalBinding, card.LocalBindingIPs = checkPortBindings(c.Ports)
 			card.TraefikEnabled, card.TraefikURLs = parseTraefikLabels(c.Labels)
 
 			if card.Icon == "" {

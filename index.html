@@ -28,7 +28,8 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .card-warnings{display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin-bottom:0.5rem;font-size:0.8rem}
 .warning-icon{cursor:help;line-height:1;font-size:1rem}
 .warning-public{color:#f85149}
-.warning-private{color:#3fb950}
+.warning-private{color:#d29922}
+.warning-local{color:#3fb950}
 .warning-traefik{color:#58a6ff}
 .traefik-url{color:#58a6ff;text-decoration:none;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.15rem;padding:1px 4px;border-radius:3px;background:#1a2332}
 .traefik-url:hover{background:#21262d;text-decoration:underline}
@@ -68,7 +69,8 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .legend-item{display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap}
 .legend-icon{font-size:1rem;line-height:1}
 .legend-icon.legend-public{color:#f85149}
-.legend-icon.legend-private{color:#3fb950}
+.legend-icon.legend-private{color:#d29922}
+.legend-icon.legend-local{color:#3fb950}
 .legend-icon.legend-traefik{color:#58a6ff}
 
 /* Nav */
@@ -207,6 +209,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 <div class="legend">
   <span class="legend-item"><span class="legend-icon legend-public">&#9650;</span> Public port binding</span>
   <span class="legend-item"><span class="legend-icon legend-private">&#9679;</span> Private port binding</span>
+  <span class="legend-item"><span class="legend-icon legend-local">&#9679;</span> Localhost port binding</span>
   <span class="legend-item"><span class="legend-icon legend-traefik">&#128279;</span> Traefik enabled</span>
   <span class="legend-item"><span class="legend-icon">&#127760;</span> Traefik URL</span>
 </div>
@@ -389,7 +392,11 @@ function renderDetailSections(card) {
   }
   if (card.hasPrivateBinding) {
     const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
-    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Private Binding</span><span class="unlabeled-info-value" style="color:#3fb950">Bound to ' + escapeHtml(ips) + '</span>');
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Private Binding</span><span class="unlabeled-info-value" style="color:#d29922">Bound to ' + escapeHtml(ips) + '</span>');
+  }
+  if (card.hasLocalBinding) {
+    const ips = card.localBindingIPs && card.localBindingIPs.length > 0 ? card.localBindingIPs.join(', ') : '127.0.0.1';
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Localhost Binding</span><span class="unlabeled-info-value" style="color:#3fb950">Bound to ' + escapeHtml(ips) + '</span>');
   }
   if (card.traefikEnabled) {
     networkWarningsItems.push('<span class="unlabeled-info-key">&#128279; Traefik</span><span class="unlabeled-info-value" style="color:#58a6ff">Enabled on this container</span>');
@@ -454,6 +461,10 @@ function renderCard(card) {
     const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
     warnings.push('<span class="warning-icon warning-private" title="Port bound to private IP: ' + escapeHtml(ips) + '">&#9679;</span>');
   }
+  if (card.hasLocalBinding) {
+    const ips = card.localBindingIPs && card.localBindingIPs.length > 0 ? card.localBindingIPs.join(', ') : '127.0.0.1';
+    warnings.push('<span class="warning-icon warning-local" title="Port bound to localhost: ' + escapeHtml(ips) + '">&#9679;</span>');
+  }
   if (card.traefikEnabled) {
     warnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
   }
@@ -497,6 +508,10 @@ function renderUnlabeled(card) {
   if (card.hasPrivateBinding) {
     const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
     unlabeledWarnings.push('<span class="warning-icon warning-private" title="Port bound to private IP: ' + escapeHtml(ips) + '">&#9679;</span>');
+  }
+  if (card.hasLocalBinding) {
+    const ips = card.localBindingIPs && card.localBindingIPs.length > 0 ? card.localBindingIPs.join(', ') : '127.0.0.1';
+    unlabeledWarnings.push('<span class="warning-icon warning-local" title="Port bound to localhost: ' + escapeHtml(ips) + '">&#9679;</span>');
   }
   if (card.traefikEnabled) {
     unlabeledWarnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');

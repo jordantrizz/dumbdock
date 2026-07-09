@@ -35,6 +35,8 @@ type containerCard struct {
 	PublicBindingIPs  []string `json:"publicBindingIPs,omitempty"`
 	HasPrivateBinding bool     `json:"hasPrivateBinding"`
 	PrivateBindingIPs []string `json:"privateBindingIPs,omitempty"`
+	HasLocalBinding   bool     `json:"hasLocalBinding"`
+	LocalBindingIPs   []string `json:"localBindingIPs,omitempty"`
 	TraefikEnabled    bool     `json:"traefikEnabled"`
 	TraefikURLs       []string `json:"traefikURLs,omitempty"`
 }
