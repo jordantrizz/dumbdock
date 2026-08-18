@@ -30,13 +30,14 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 ### Using Docker Compose (recommended)
 
 ```bash
-# Copy the example compose file
-cp docker-compose.yml.example docker-compose.yml
+# One command: creates docker-compose.yml from the example (if missing),
+# creates .env, builds, starts the stack, and waits for readiness
+./control.sh setup
 
+# Or manually:
+# cp docker-compose.yml.example docker-compose.yml
 # (Optional) Edit docker-compose.yml to configure alerts or mount a config file
-
-# Start
-docker compose up -d
+# docker compose up -d
 ```
 
 Then open **http://localhost:8080**.
@@ -60,6 +61,24 @@ go build -o dumbdock .
 ```
 
 The embedded version (from `VERSION`) and an API endpoint (`/api/version`) let you check which build is running. For Docker builds a build number based on `git rev-parse --short HEAD` (short commit SHA) is also injected — local builds default to build `"0"`.
+
+## Operations (control.sh)
+
+A single `./control.sh` script manages the Docker Compose stack. It auto-detects the compose files, main service, and build args — no configuration needed. `setup` auto-creates `docker-compose.yml` from `docker-compose.yml.example` when the real file is missing, and creates an empty `.env` (dumbdock needs no environment file).
+
+| Command | Description |
+|---------|-------------|
+| `./control.sh setup [--force] [dev\|prod]` | Create/refresh `.env`, start the stack |
+| `./control.sh start` | Start the stack |
+| `./control.sh stop` | Stop and remove containers |
+| `./control.sh restart` | Restart containers (no rebuild) |
+| `./control.sh rebuild` | `git pull` + rebuild images + recreate containers |
+| `./control.sh status` | Show container + version status |
+| `./control.sh logs [service]` | Tail logs (default: all services) |
+| `./control.sh reset [--yes]` | **DESTRUCTIVE** wipe (volumes + data) + fresh setup |
+| `./control.sh help` | Show help |
+
+> **Note:** `./control.sh rebuild` replaces the former `rebuild.sh` script, which has been removed.
 
 ## Labeling Containers
 
