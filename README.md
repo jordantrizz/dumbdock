@@ -15,6 +15,7 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Smart icon resolution** — automatically detects icons for unlabeled containers from [selfhst/icons](https://github.com/selfhst/icons), [dashboard-icons](https://github.com/homarr-labs/dashboard-icons), or any configured icon set based on the image name. Matched containers get their own group (default: "Auto Detected") so they don't clutter the "Unlabeled" section. Falls back to a generic placeholder when no specific match is found.
 - **Dumbdock branding** — a built-in SVG icon (`/dumbdock.svg`) serves as favicon, nav bar logo, and auto-detection icon for dumbdock containers themselves.
 - **Grouped card layout** — labeled containers appear in organized groups with responsive cards showing icon, name, description, link, and status.
+- **Dependency grouping** — a third view groups containers under the container(s) they depend on, read automatically from the Docker Compose `com.docker.compose.depends_on` label (no `dumbdock.*` label needed). The dashboard toggle cycles **By Group → By Compose → By Dependency**.
 - **Unlabeled container section** — containers without `dumbdock.*` labels appear in an expandable list that shows current labels, container info, and copy-paste-ready examples for labeling via docker-compose or `dumbdock.json`.
 - **Config file overrides** — optionally define names, groups, icons, etc. in a JSON config file instead of (or in addition to) Docker labels.
 - **Alert notifications** — get notified via [ntfy.sh](https://ntfy.sh) or [Gotify](https://gotify.net) when new unlabeled containers are detected, with configurable cooldown.
@@ -128,6 +129,31 @@ Mount the config file:
 volumes:
   - ./dumbdock.json:/config/dumbdock.json:ro
 ```
+
+### Grouping by Dependency
+
+In addition to grouping by `dumbdock.group` labels or by Compose project, the dashboard can group containers by **dependency**. This view reads the `com.docker.compose.depends_on` label that Docker Compose sets automatically — no `dumbdock.*` label is required.
+
+Containers are grouped under the container(s) they depend on, and the group heading is the dependency container's display name (`dumbdock.name` if set, otherwise the container name). For example, with this compose file:
+
+```yaml
+services:
+  db:
+    image: postgres:16
+  app:
+    image: myapp
+    depends_on:
+      - db
+```
+
+The **By Dependency** view shows the `app` container under a `db` group heading.
+
+Behavior notes:
+
+- **Direct dependencies only** — grouping uses the immediate `depends_on` targets; there is no transitive resolution (a container that depends on `api`, which itself depends on `db`, is grouped under `api`, not `db`).
+- **Multiple dependencies** — a container that depends on several services appears in each of those dependency groups.
+- **No resolvable dependency** — containers with no `depends_on` label, or whose dependency service isn't running, go under a `Standalone` group.
+- **Toggle** — the button in the nav bar cycles **By Group → By Compose → By Dependency → By Group**. Your choice is remembered across page loads.
 
 ## Traefik Dashboard
 

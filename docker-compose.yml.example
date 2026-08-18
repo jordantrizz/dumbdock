@@ -21,3 +21,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # - ./dumbdock.json:/config/dumbdock.json:ro     # override config (supports iconSets)
       # - ./my-icons/:/config/my-icons/:ro             # local icon index files
+
+# Dependency grouping: dumbdock reads the com.docker.compose.depends_on label
+# that Compose sets automatically. In the dashboard, switch the nav toggle to
+# "By Dependency" to group containers under the container(s) they depend on.
+# Example:
+#
+# services:
+#   db:
+#     image: postgres:16
+#   app:
+#     image: myapp
+#     depends_on:
+#       - db
+#
+# The "app" container then appears under a "db" group heading in the
+# By Dependency view.
