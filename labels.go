@@ -18,6 +18,13 @@ type containerCard struct {
 	// ComposeProject is extracted from com.docker.compose.project label.
 	ComposeProject string `json:"composeProject,omitempty"`
 
+	// ServiceName is the compose service name (com.docker.compose.service label).
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// DependsOn is the list of compose service names this container depends on,
+	// parsed from the com.docker.compose.depends_on label.
+	DependsOn []string `json:"dependsOn,omitempty"`
+
 	ContainerID   string            `json:"containerId"`
 	ContainerName string            `json:"containerName"`
 	Image         string            `json:"image"`
@@ -74,4 +81,31 @@ func parseLabels(labels map[string]string) containerCard {
 	}
 
 	return card
+}
+
+// parseDependsOn parses the com.docker.compose.depends_on label value into a
+// list of service names. The label is a comma-separated list of
+// "service:condition:restart" entries (e.g.
+// "db:service_started:false,redis:service_healthy:true"). Only the service
+// name (the part before the first ":") is kept; empty entries are dropped.
+func parseDependsOn(label string) []string {
+	if label == "" {
+		return nil
+	}
+	var deps []string
+	for _, entry := range strings.Split(label, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		name := entry
+		if idx := strings.Index(entry, ":"); idx >= 0 {
+			name = entry[:idx]
+		}
+		name = strings.TrimSpace(name)
+		if name != "" {
+			deps = append(deps, name)
+		}
+	}
+	return deps
 }
