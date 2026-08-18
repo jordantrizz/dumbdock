@@ -201,7 +201,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
     <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')" style="display:none">Traefik</button>
   </div>
   <span class="nav-separator"></span>
-  <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group and compose project view">By Compose</button>
+  <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group, compose project, and dependency views">By Compose</button>
   <button class="copy-json-btn" id="copy-json-btn" onclick="copyDashboardJSON()" title="Copy all dashboard data as JSON">Copy JSON</button>
 </div>
 
@@ -238,21 +238,27 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 <div id="detail-backdrop" class="detail-backdrop"></div>
 <script>
 let dashboardData = null;
-let composeGroupView = false;
+// View mode: 'group' (dumbdock.group labels), 'compose' (compose projects),
+// or 'dependency' (compose depends_on).
+let viewMode = 'group';
 const expandedItems = new Set();
 async function load() {
   try {
     const res = await fetch('/api/containers');
     const data = await res.json();
     dashboardData = data;
-    // Restore toggle state from localStorage after data loads.
-    if (localStorage.getItem('dumbdock-compose-view') === 'true') {
-      composeGroupView = true;
-      var btn = document.getElementById('group-toggle-btn');
-      if (btn) {
-        btn.textContent = 'By Group';
-        btn.classList.add('active');
-      }
+    // Restore view mode from localStorage after data loads.
+    var savedView = localStorage.getItem('dumbdock-view');
+    if (savedView === 'compose' || savedView === 'dependency') {
+      viewMode = savedView;
+    } else if (localStorage.getItem('dumbdock-compose-view') === 'true') {
+      // Migration from the old two-state toggle.
+      viewMode = 'compose';
+    }
+    var btn = document.getElementById('group-toggle-btn');
+    if (btn) {
+      btn.textContent = viewMode === 'group' ? 'By Compose' : (viewMode === 'compose' ? 'By Dependency' : 'By Group');
+      btn.classList.toggle('active', viewMode !== 'group');
     }
     render(data);
     // Show/hide the Traefik nav tab based on whether a Traefik container was detected.
@@ -268,11 +274,22 @@ async function load() {
 function render(data) {
   let html = '';
 
-  if (composeGroupView && data.composeGrouped && data.composeProjects) {
+  if (viewMode === 'compose' && data.composeGrouped && data.composeProjects) {
     for (const project of data.composeProjects) {
       const cards = data.composeGrouped[project];
       if (!cards || cards.length === 0) continue;
       html += '<h2>' + escapeHtml(project) + ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + cards.length + ')</span></h2>';
+      html += '<div class="grid">';
+      for (const card of cards) {
+        html += renderCard(card);
+      }
+      html += '</div>';
+    }
+  } else if (viewMode === 'dependency' && data.dependencyGrouped && data.dependencyGroups) {
+    for (const group of data.dependencyGroups) {
+      const cards = data.dependencyGrouped[group];
+      if (!cards || cards.length === 0) continue;
+      html += '<h2>' + escapeHtml(group) + ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + cards.length + ')</span></h2>';
       html += '<div class="grid">';
       for (const card of cards) {
         html += renderCard(card);
@@ -300,8 +317,10 @@ function render(data) {
     }
   }
 
-  var hasGroups = composeGroupView && data.composeProjects ? data.composeProjects.length > 0 : data.groups.length > 0;
-  var hasUnlabeled = composeGroupView ? false : data.unlabeled && data.unlabeled.length > 0;
+  var hasGroups = (viewMode === 'compose' && data.composeProjects) ? data.composeProjects.length > 0
+    : (viewMode === 'dependency' && data.dependencyGroups) ? data.dependencyGroups.length > 0
+    : data.groups.length > 0;
+  var hasUnlabeled = (viewMode === 'compose' || viewMode === 'dependency') ? false : data.unlabeled && data.unlabeled.length > 0;
   if (!hasGroups && !hasUnlabeled) {
     html = '<div class="loading">No running containers found.</div>';
   }
@@ -659,14 +678,20 @@ function copyDashboardJSON() {
   }
 }
 
-// ---- Group view toggle ----
+// ---- View mode toggle (group -> compose -> dependency -> group) ----
 function toggleGroupView() {
-  composeGroupView = !composeGroupView;
-  localStorage.setItem('dumbdock-compose-view', composeGroupView ? 'true' : '');
+  if (viewMode === 'group') {
+    viewMode = 'compose';
+  } else if (viewMode === 'compose') {
+    viewMode = 'dependency';
+  } else {
+    viewMode = 'group';
+  }
+  localStorage.setItem('dumbdock-view', viewMode);
   var btn = document.getElementById('group-toggle-btn');
   if (btn) {
-    btn.textContent = composeGroupView ? 'By Group' : 'By Compose';
-    btn.classList.toggle('active', composeGroupView);
+    btn.textContent = viewMode === 'group' ? 'By Compose' : (viewMode === 'compose' ? 'By Dependency' : 'By Group');
+    btn.classList.toggle('active', viewMode !== 'group');
   }
   if (dashboardData) {
     render(dashboardData);
