@@ -1,4 +1,6 @@
 dumbdock
 .#*
 docker-compose.yml
+.env
+.env.bak
 /plans
