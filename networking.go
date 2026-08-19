@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -59,6 +60,8 @@ type networkingResponse struct {
 }
 
 // fetchNetworks returns the list of Docker networks from the Docker API.
+// The list endpoint omits the Containers map, so each network's detail is
+// fetched to populate the attached containers and their IPs.
 func fetchNetworks(client *http.Client) ([]dockerNetwork, error) {
 	resp, err := client.Get("http://localhost/v1.45/networks")
 	if err != nil {
@@ -74,7 +77,36 @@ func fetchNetworks(client *http.Client) ([]dockerNetwork, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&networks); err != nil {
 		return nil, fmt.Errorf("decode networks: %w", err)
 	}
+
+	for i := range networks {
+		detail, err := fetchNetworkDetail(client, networks[i].ID)
+		if err != nil {
+			log.Printf("warning: fetch network detail %s: %v", networks[i].Name, err)
+			continue
+		}
+		networks[i].Containers = detail.Containers
+	}
 	return networks, nil
+}
+
+// fetchNetworkDetail returns a single network's detail, which includes the
+// Containers map (the list endpoint leaves it null).
+func fetchNetworkDetail(client *http.Client, id string) (dockerNetwork, error) {
+	resp, err := client.Get("http://localhost/v1.45/networks/" + id)
+	if err != nil {
+		return dockerNetwork{}, fmt.Errorf("fetch network detail: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return dockerNetwork{}, fmt.Errorf("docker API returned status %d", resp.StatusCode)
+	}
+
+	var network dockerNetwork
+	if err := json.NewDecoder(resp.Body).Decode(&network); err != nil {
+		return dockerNetwork{}, fmt.Errorf("decode network detail: %w", err)
+	}
+	return network, nil
 }
 
 // buildNetworkingData groups running containers under each network they are

@@ -89,6 +89,7 @@ func main() {
 	var composeProjects []string
 	var dependencyGrouped map[string][]containerCard
 	var dependencyProjects []string
+	var networkingData networkingResponse
 
 	refresh := func() {
 		containers, err := fetchContainers(client, false)
@@ -335,11 +336,27 @@ func main() {
 		}
 	}
 
+	refreshNetworking := func() {
+		containers, err := fetchContainers(client, true)
+		if err != nil {
+			log.Printf("error fetching containers for networking: %v", err)
+			return
+		}
+		networks, err := fetchNetworks(client)
+		if err != nil {
+			log.Printf("error fetching networks: %v", err)
+			return
+		}
+		networkingData = buildNetworkingData(containers, networks)
+	}
+
 	refresh()
+	refreshNetworking()
 
 	go func() {
 		for range time.NewTicker(pollInterval).C {
 			refresh()
+			refreshNetworking()
 		}
 	}()
 
@@ -362,6 +379,12 @@ func main() {
 			DependencyProjects: dependencyProjects,
 		}
 		json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("GET /api/networking", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		json.NewEncoder(w).Encode(networkingData)
 	})
 
 	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
