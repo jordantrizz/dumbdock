@@ -22,7 +22,7 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Password protection** — optional HTTP Basic Authentication via the `DUMBDOCK_PASSWORD` environment variable. When set, all dashboard and API access requires the password (any username accepted).
 - **Network Warnings** — identifies containers with ports exposed on non-localhost IPs (▲) and surfaces [Traefik](https://traefik.io) proxy configuration (🔗) with clickable URLs extracted from `traefik.http.routers.*.rule` labels.
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
-- **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels.
+- **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
 - **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `scratch`.
 - **Cache-aware HTTP headers** — serves the dashboard HTML with `ETag` and `Cache-Control: no-cache` headers, and API responses with `Cache-Control: no-cache`. The ETag is derived from a build-time version string (Git SHA + timestamp) injected via ldflags, enabling browsers to revalidate efficiently with `304 Not Modified`. Version defaults to `"dev"` for local builds; Docker builds automatically get a version tag.
 
@@ -353,6 +353,10 @@ dumbdock surfaces two types of network-related warnings on every container card 
 A red triangle (▲) indicates the container has at least one port bound to a non-localhost IP (e.g., `0.0.0.0`, a public interface). Hovering shows which IPs are affected. Containers with all ports bound to `127.0.0.1` or `::1` show no warning.
 
 **Best practice:** Bind containers to `127.0.0.1` and let a reverse proxy (like Traefik) handle external traffic.
+
+### Networking Tab Banner ⚠
+
+On the **Networking** tab, containers that publish ports on `0.0.0.0` (all interfaces) trigger a warning banner at the top of the page listing the affected containers, and each affected row shows a ⚠ marker. This makes it easy to spot services that are reachable from any network interface rather than just `127.0.0.1` or a specific private IP.
 
 ### Traefik Detection 🔗
 

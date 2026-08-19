@@ -196,6 +196,12 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .traefik-info-banner .err-detail{font-size:0.85rem;color:#8b949e;line-height:1.5}
 .traefik-info-banner .err-retry{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;cursor:pointer;font-size:0.8rem;margin-top:0.5rem;transition:all 0.15s}
 .traefik-info-banner .err-retry:hover{background:#1a2332}
+.networking-warning-banner{padding:1rem;background:#2d2410;border:1px solid #d29922;border-radius:8px;color:#f0f2f5;margin-bottom:1rem;display:flex;align-items:flex-start;gap:0.75rem}
+.networking-warning-banner .err-icon{color:#d29922;font-size:1.2rem;flex-shrink:0;line-height:1}
+.networking-warning-banner .err-body{flex:1}
+.networking-warning-banner .err-title{font-weight:600;margin-bottom:0.3rem}
+.networking-warning-banner .err-detail{font-size:0.85rem;color:#8b949e;line-height:1.5}
+.networking-exposed{color:#d29922;cursor:help;font-size:0.9rem;margin-left:0.3rem}
 .traefik-code{display:block;margin-top:0.5rem;padding:0.6rem 0.8rem;background:#161b22;border:1px solid #30363d;border-radius:6px;font-family:monospace;font-size:0.8rem;color:#d29922;word-break:break-all;white-space:pre-wrap}
 
 .traefik-server-list{display:flex;flex-direction:column;gap:0.2rem}
@@ -937,6 +943,12 @@ function renderNetworking(data) {
   var container = document.getElementById('networking-app');
   var html = '';
 
+  // Warning banner for containers publishing ports on 0.0.0.0 (all interfaces).
+  var publicExposed = data.publicExposed || [];
+  if (publicExposed.length > 0) {
+    html += '<div class="networking-warning-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Containers exposed on all interfaces (0.0.0.0)</div><div class="err-detail">The following containers publish ports on 0.0.0.0, making them reachable from any network interface. Consider binding to 127.0.0.1 or a specific private IP if they should not be publicly accessible: <strong>' + publicExposed.map(escapeHtml).join(', ') + '</strong></div></div></div>';
+  }
+
   // Running section: one table per network group.
   var running = data.running || [];
   html += '<h2>Running <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + running.length + ' networks)</span></h2>';
@@ -947,7 +959,11 @@ function renderNetworking(data) {
       html += '<h3>' + escapeHtml(group.name) + (group.driver ? ' <span style="color:#6e7681;font-weight:400;font-size:0.8rem">(' + escapeHtml(group.driver) + ')</span>' : '') + '</h3>';
       html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Container</th><th>IP</th><th>Ports</th></tr></thead><tbody>';
       for (const c of group.containers) {
-        html += '<tr><td>' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.ip || '—') + '</td><td>' + formatNetworkPorts(c.ports) + '</td></tr>';
+        var nameCell = escapeHtml(c.name);
+        if (c.exposedPublic) {
+          nameCell += ' <span class="networking-exposed" title="Ports published on 0.0.0.0 (all interfaces)">&#9888;</span>';
+        }
+        html += '<tr><td>' + nameCell + '</td><td>' + escapeHtml(c.ip || '—') + '</td><td>' + formatNetworkPorts(c.ports) + '</td></tr>';
       }
       html += '</tbody></table></div>';
     }

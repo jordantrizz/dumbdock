@@ -44,6 +44,9 @@ type networkContainer struct {
 	State string        `json:"state"`
 	IP    string        `json:"ip,omitempty"`
 	Ports []networkPort `json:"ports"`
+	// ExposedPublic is true when at least one published port is bound to
+	// 0.0.0.0 (or the IPv6 wildcard ::), i.e. reachable on all interfaces.
+	ExposedPublic bool `json:"exposedPublic,omitempty"`
 }
 
 // networkGroup is a network with the running containers attached to it.
@@ -57,6 +60,9 @@ type networkGroup struct {
 type networkingResponse struct {
 	Running []networkGroup     `json:"running"`
 	Stopped []networkContainer `json:"stopped"`
+	// PublicExposed lists the names of running containers that publish ports
+	// on 0.0.0.0 (all interfaces), for the networking page warning banner.
+	PublicExposed []string `json:"publicExposed,omitempty"`
 }
 
 // fetchNetworks returns the list of Docker networks from the Docker API.
@@ -132,6 +138,9 @@ func buildNetworkingData(containers []dockerContainer, networks []dockerNetwork)
 		}
 	}
 
+	// Track running containers that publish ports on 0.0.0.0 (all interfaces).
+	exposedSet := make(map[string]bool)
+
 	// Group running containers under each network they are attached to.
 	seen := make(map[string]bool)
 	var running []networkGroup
@@ -146,13 +155,18 @@ func buildNetworkingData(containers []dockerContainer, networks []dockerNetwork)
 				continue
 			}
 			seen[cid] = true
+			exposed := hasPublicExposure(c.Ports)
+			if exposed {
+				exposedSet[containerName(c)] = true
+			}
 			group.Containers = append(group.Containers, networkContainer{
-				Name:  containerName(c),
-				ID:    c.ID[:12],
-				Image: c.Image,
-				State: c.State,
-				IP:    cleanIP(member.IPv4Address),
-				Ports: toNetworkPorts(c.Ports),
+				Name:          containerName(c),
+				ID:            c.ID[:12],
+				Image:         c.Image,
+				State:         c.State,
+				IP:            cleanIP(member.IPv4Address),
+				Ports:         toNetworkPorts(c.Ports),
+				ExposedPublic: exposed,
 			})
 		}
 		if len(group.Containers) > 0 {
@@ -167,12 +181,17 @@ func buildNetworkingData(containers []dockerContainer, networks []dockerNetwork)
 	var none []networkContainer
 	for cid, c := range byID {
 		if !seen[cid] {
+			exposed := hasPublicExposure(c.Ports)
+			if exposed {
+				exposedSet[containerName(c)] = true
+			}
 			none = append(none, networkContainer{
-				Name:  containerName(c),
-				ID:    c.ID[:12],
-				Image: c.Image,
-				State: c.State,
-				Ports: toNetworkPorts(c.Ports),
+				Name:          containerName(c),
+				ID:            c.ID[:12],
+				Image:         c.Image,
+				State:         c.State,
+				Ports:         toNetworkPorts(c.Ports),
+				ExposedPublic: exposed,
 			})
 		}
 	}
@@ -190,7 +209,14 @@ func buildNetworkingData(containers []dockerContainer, networks []dockerNetwork)
 		return strings.ToLower(stopped[i].Name) < strings.ToLower(stopped[j].Name)
 	})
 
-	return networkingResponse{Running: running, Stopped: stopped}
+	// Sorted list of containers exposed on all interfaces for the warning banner.
+	publicExposed := make([]string, 0, len(exposedSet))
+	for name := range exposedSet {
+		publicExposed = append(publicExposed, name)
+	}
+	sort.Strings(publicExposed)
+
+	return networkingResponse{Running: running, Stopped: stopped, PublicExposed: publicExposed}
 }
 
 // toNetworkPorts converts Docker API port mappings into the networking view's
@@ -217,4 +243,25 @@ func cleanIP(addr string) string {
 		return addr[:i]
 	}
 	return addr
+}
+
+// isExposedOnAllInterfaces reports whether a port binding IP exposes the port
+// on all host interfaces. Docker reports an unset IP as 0.0.0.0; "::" is the
+// IPv6 wildcard equivalent.
+func isExposedOnAllInterfaces(ip string) bool {
+	return ip == "" || ip == "0.0.0.0" || ip == "::"
+}
+
+// hasPublicExposure reports whether any published port of the container is
+// bound to 0.0.0.0 (all interfaces).
+func hasPublicExposure(ports []dockerPort) bool {
+	for _, p := range ports {
+		if p.PublicPort == 0 {
+			continue
+		}
+		if isExposedOnAllInterfaces(p.IP) {
+			return true
+		}
+	}
+	return false
 }
