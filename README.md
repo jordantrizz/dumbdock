@@ -176,7 +176,7 @@ Behavior notes:
 
 ## Traefik Dashboard
 
-When a running Traefik container is detected (image name containing "traefik"), dumbdock adds a **Traefik** tab to the navigation bar. Clicking it displays a full status dashboard fetched from the Traefik API.
+The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting.
 
 ### Auto-Discovery
 
@@ -187,7 +187,7 @@ dumbdock automatically finds the Traefik API URL using a fallback chain:
 3. **Docker network IP** — reads the container's IP address from its first Docker network and appends port `:8080`. If the container's command specifies a custom entrypoint port (`--entrypoints.traefik.address=:PORT`), that port is used instead.
 4. **Published port** — falls back to the first published TCP port on `127.0.0.1` (preferring 8080).
 
-If none of these succeed, no Traefik tab appears.
+If none of these succeed, the Traefik tab shows an error explaining that the API URL could not be resolved.
 
 ### Data Displayed
 
