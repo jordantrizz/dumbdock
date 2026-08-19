@@ -91,7 +91,7 @@ func main() {
 	var dependencyProjects []string
 
 	refresh := func() {
-		containers, err := fetchContainers(client)
+		containers, err := fetchContainers(client, false)
 		if err != nil {
 			log.Printf("error fetching containers: %v", err)
 			return
