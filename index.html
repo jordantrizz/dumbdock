@@ -198,7 +198,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="nav-tab" onclick="switchTab('icons')">Icons</button>
-    <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')" style="display:none">Traefik</button>
+    <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
   </div>
   <span class="nav-separator"></span>
   <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group, compose project, and dependency views">By Compose</button>
@@ -261,11 +261,6 @@ async function load() {
       btn.classList.toggle('active', viewMode !== 'group');
     }
     render(data);
-    // Show/hide the Traefik nav tab based on whether a Traefik container was detected.
-    var traefikTab = document.getElementById('nav-traefik');
-    if (traefikTab) {
-      traefikTab.style.display = data.hasTraefik ? '' : 'none';
-    }
   } catch (e) {
     document.getElementById('app').innerHTML = '<div class="error">Failed to load containers: ' + e.message + '</div>';
   }
