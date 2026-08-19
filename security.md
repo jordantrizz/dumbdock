@@ -51,12 +51,13 @@
 | **File(s)** | `main.go`, `index.html` |
 | **Line(s)** | `main.go:324-327` (HTTP server start) |
 
-**Description:** All HTTP endpoints (`/api/containers`, `/api/icons`, `/api/version`, `/`) are publicly accessible with no authentication, authorization, or session management. The only access control is the network binding address.
+**Description:** All HTTP endpoints (`/api/containers`, `/api/networking`, `/api/icons`, `/api/version`, `/`) are publicly accessible with no authentication, authorization, or session management. The only access control is the network binding address.
 
 **Impact:** Any entity with network access to the dashboard can:
 - View all running containers with full metadata (image names, port bindings, labels, Traefik URLs)
 - Discover internal hostnames and network topology via Traefik rules
 - Access the icon index endpoint
+- Enumerate container network attachments, in-network IPs, and port mappings via `/api/networking` (note: this endpoint exposes no Docker labels — see M-01)
 
 **Remediation:**
 1. Implement HTTP Basic Auth or Bearer token authentication as an optional feature (env var `AUTH_TOKEN` or `AUTH_USERNAME`/`AUTH_PASSWORD`).
