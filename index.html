@@ -10,6 +10,7 @@
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#0f1117;color:#e1e4e8;padding:2rem}
 h1{font-size:1.5rem;margin-bottom:1.5rem;color:#f0f2f5}
 h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em}
+h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:uppercase;letter-spacing:0.04em}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
 .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1rem;display:flex;flex-direction:column}
 .card-header{display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem}
@@ -206,6 +207,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   <span class="nav-title"><img src="/dumbdock.svg" width="24" height="24" alt="" style="vertical-align:middle;margin-right:6px">dumbdock</span>
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="nav-tab" onclick="switchTab('networking')">Networking</button>
     <button class="nav-tab" onclick="switchTab('icons')">Icons</button>
     <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
   </div>
@@ -236,6 +238,12 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   </div>
   <div class="icon-provider-filter" id="providerFilters"></div>
   <div id="iconResults"></div>
+</div>
+
+<div id="page-networking" style="display:none">
+  <div id="networking-app">
+    <div class="loading">Loading networking data...</div>
+  </div>
 </div>
 
 <div id="page-traefik" style="display:none">
@@ -610,6 +618,11 @@ setInterval(function() {
   if (traefikPage && traefikPage.style.display !== 'none') {
     loadTraefik();
   }
+  // Only refresh networking data if the Networking tab is currently visible.
+  var networkingPage = document.getElementById('page-networking');
+  if (networkingPage && networkingPage.style.display !== 'none') {
+    loadNetworking();
+  }
 }, 10000);
 
 async function loadVersion() {
@@ -717,6 +730,11 @@ function switchTab(tab) {
     document.querySelector('.nav-tab:first-child').classList.add('active');
     document.getElementById('page-dashboard').style.display = '';
     document.getElementById('copy-json-btn').style.display = '';
+  } else if (tab === 'networking') {
+    document.querySelectorAll('.nav-tab')[1].classList.add('active');
+    document.getElementById('page-networking').style.display = '';
+    document.getElementById('copy-json-btn').style.display = 'none';
+    loadNetworking();
   } else if (tab === 'traefik') {
     document.getElementById('nav-traefik').classList.add('active');
     document.getElementById('page-traefik').style.display = '';
@@ -900,6 +918,68 @@ function renderIconTable(append) {
     }
     iconObserver.observe(sentinel);
   }
+}
+
+// ===== Networking =====
+
+async function loadNetworking() {
+  var container = document.getElementById('networking-app');
+  try {
+    var res = await fetch('/api/networking');
+    var data = await res.json();
+    renderNetworking(data);
+  } catch (e) {
+    container.innerHTML = '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Failed to load networking data</div><div class="err-detail">' + escapeHtml(e.message) + '</div><button class="err-retry" onclick="loadNetworking()">Retry</button></div></div>';
+  }
+}
+
+function renderNetworking(data) {
+  var container = document.getElementById('networking-app');
+  var html = '';
+
+  // Running section: one table per network group.
+  var running = data.running || [];
+  html += '<h2>Running <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + running.length + ' networks)</span></h2>';
+  if (running.length === 0) {
+    html += '<div class="traefik-empty">No running containers.</div>';
+  } else {
+    for (const group of running) {
+      html += '<h3>' + escapeHtml(group.name) + (group.driver ? ' <span style="color:#6e7681;font-weight:400;font-size:0.8rem">(' + escapeHtml(group.driver) + ')</span>' : '') + '</h3>';
+      html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Container</th><th>IP</th><th>Ports</th></tr></thead><tbody>';
+      for (const c of group.containers) {
+        html += '<tr><td>' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.ip || '—') + '</td><td>' + formatNetworkPorts(c.ports) + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+  }
+
+  // Stopped section: flat table.
+  var stopped = data.stopped || [];
+  html += '<h2>Stopped <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + stopped.length + ')</span></h2>';
+  if (stopped.length === 0) {
+    html += '<div class="traefik-empty">No stopped containers.</div>';
+  } else {
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Container</th><th>Image</th><th>Networks</th><th>Ports</th></tr></thead><tbody>';
+    for (const c of stopped) {
+      html += '<tr><td>' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.image) + '</td><td>—</td><td>—</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function formatNetworkPorts(ports) {
+  if (!ports || ports.length === 0) return '—';
+  var parts = [];
+  for (const p of ports) {
+    if (p.external > 0) {
+      parts.push(escapeHtml(String(p.internal)) + ' → ' + escapeHtml(String(p.external)) + '/' + escapeHtml(p.type));
+    } else {
+      parts.push(escapeHtml(String(p.internal)) + '/' + escapeHtml(p.type));
+    }
+  }
+  return parts.join(', ');
 }
 
 // ===== Traefik Dashboard =====
