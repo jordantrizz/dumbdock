@@ -188,6 +188,15 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .traefik-error-banner .err-retry{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #f85149;background:transparent;color:#f85149;cursor:pointer;font-size:0.8rem;margin-top:0.5rem;transition:all 0.15s}
 .traefik-error-banner .err-retry:hover{background:#3d1116}
 
+.traefik-info-banner{padding:1rem;background:#0d1a2b;border:1px solid #58a6ff;border-radius:8px;color:#f0f2f5;margin-bottom:1rem;display:flex;align-items:flex-start;gap:0.75rem}
+.traefik-info-banner .err-icon{color:#58a6ff;font-size:1.2rem;flex-shrink:0;line-height:1}
+.traefik-info-banner .err-body{flex:1}
+.traefik-info-banner .err-title{font-weight:600;margin-bottom:0.3rem}
+.traefik-info-banner .err-detail{font-size:0.85rem;color:#8b949e;line-height:1.5}
+.traefik-info-banner .err-retry{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;cursor:pointer;font-size:0.8rem;margin-top:0.5rem;transition:all 0.15s}
+.traefik-info-banner .err-retry:hover{background:#1a2332}
+.traefik-code{display:block;margin-top:0.5rem;padding:0.6rem 0.8rem;background:#161b22;border:1px solid #30363d;border-radius:6px;font-family:monospace;font-size:0.8rem;color:#d29922;word-break:break-all;white-space:pre-wrap}
+
 .traefik-server-list{display:flex;flex-direction:column;gap:0.2rem}
 .traefik-server-list .server-item{font-size:0.8rem;font-family:monospace;word-break:break-all}
 </style>
@@ -910,7 +919,7 @@ function renderTraefik(resp) {
   var container = document.getElementById('traefik-app');
 
   if (!resp.found) {
-    container.innerHTML = '<div class="traefik-empty">No Traefik container detected. Start a container with \"traefik\" in the image name.</div>';
+    container.innerHTML = '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body"><div class="err-title">Traefik not detected</div><div class="err-detail">No running container with "traefik" in its image name was found. Start a Traefik container to enable the dashboard, for example:<code class="traefik-code">docker run -d --name traefik -p 8080:8080 -p 80:80 -v /var/run/docker.sock:/var/run/docker.sock traefik:v3</code></div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
     return;
   }
 
