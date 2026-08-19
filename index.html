@@ -927,7 +927,11 @@ function renderTraefik(resp) {
 
   // Error banner (if API is unreachable)
   if (resp.error && !resp.data) {
-    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Traefik container detected but API is not accessible</div><div class="err-detail">' + escapeHtml(resp.error) + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
+    var errDetail = escapeHtml(resp.error);
+    if (resp.apiUrl) {
+      errDetail += '<br>API: <code>' + escapeHtml(resp.apiUrl) + '</code>';
+    }
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Traefik container detected but API is not accessible</div><div class="err-detail">' + errDetail + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
     container.innerHTML = html;
     return;
   }
