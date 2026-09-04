@@ -329,6 +329,7 @@ cmd_setup() {
 
     local url port
     port="$(get_env APP_PORT)"
+    [ -z "$port" ] && port="$(get_env DUMBDOCK_PORT)"
     url="$(get_env APP_BASE_URL)"
     if [ -n "$port" ]; then
         log "Done. Stack available at http://localhost:${port}"
