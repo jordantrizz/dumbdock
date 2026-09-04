@@ -40,6 +40,10 @@ No CSP, X-Content-Type-Options, or X-Frame-Options on responses.
 
 ### Future: Authentication
 No auth on dashboard — rely on reverse proxy or add Basic/Bearer auth.
+Implemented 2026-09-04 (`DUMBDOCK_AUTH_MODE`: `none` / `http-auth` / `web-auth`; see README "Authentication"):
+session cookie `dumbdock_session` uses `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Secure` flag (terminate TLS in proxy);
+sessions in-memory (8h, 30d remember-me, hourly purge); password compare is constant-time (SHA-256 + `crypto/subtle`).
+No new findings.
 
 ## README.md
 

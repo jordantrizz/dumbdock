@@ -19,7 +19,7 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Unlabeled container section** — containers without `dumbdock.*` labels appear in an expandable list that shows current labels, container info, and copy-paste-ready examples for labeling via docker-compose or `dumbdock.json`.
 - **Config file overrides** — optionally define names, groups, icons, etc. in a JSON config file instead of (or in addition to) Docker labels.
 - **Alert notifications** — get notified via [ntfy.sh](https://ntfy.sh) or [Gotify](https://gotify.net) when new unlabeled containers are detected, with configurable cooldown.
-- **Password protection** — optional HTTP Basic Authentication via the `DUMBDOCK_PASSWORD` environment variable. When set, all dashboard and API access requires the password (any username accepted).
+- **Password protection** — optional authentication via the `DUMBDOCK_PASSWORD` environment variable, in two modes selected by `DUMBDOCK_AUTH_MODE`: `http-auth` (HTTP Basic Authentication) or `web-auth` (web login form with username + password, "Remember me", and session cookies). When a password is set without a mode, Basic auth applies. Leave the password empty for no auth.
 - **Network Warnings** — identifies containers with ports exposed on non-localhost IPs (▲) and surfaces [Traefik](https://traefik.io) proxy configuration (🔗) with clickable URLs extracted from `traefik.http.routers.*.rule` labels.
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
 - **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
@@ -65,7 +65,7 @@ The embedded version (from `VERSION`) and an API endpoint (`/api/version`) let y
 
 ## Operations (control.sh)
 
-A single `./control.sh` script manages the Docker Compose stack. It auto-detects the compose files, main service, and build args — no configuration needed. `setup` auto-creates `docker-compose.yml` from `docker-compose.yml.example` when the real file is missing, and creates an empty `.env` (dumbdock needs no environment file).
+A single `./control.sh` script manages the Docker Compose stack. It auto-detects the compose files, main service, and build args — no configuration needed. `setup` auto-creates `docker-compose.yml` from `docker-compose.yml.example` when the real file is missing, and creates `.env` from `.env.example` (auto-generating an empty `DUMBDOCK_PASSWORD`).
 
 | Command | Description |
 |---------|-------------|
@@ -246,12 +246,35 @@ environment:
   - ALERT_COOLDOWN=5m   # minimum time between alert batches (default: 5m)
 ```
 
+## Authentication
+
+dumbdock supports three authentication modes, selected by `DUMBDOCK_AUTH_MODE`:
+
+| Mode | Value | Behavior |
+|------|-------|----------|
+| No auth | `none` (default) | Dashboard and API are open. |
+| HTTP Basic | `http-auth` | Browser-native login prompt; any username is accepted but the password must match `DUMBDOCK_PASSWORD`. This is also the behavior when `DUMBDOCK_AUTH_MODE` is unset but `DUMBDOCK_PASSWORD` is set. |
+| Web login | `web-auth` | Login form overlay (username + password + **Remember me**); session cookie `dumbdock_session` (`HttpOnly`, `SameSite=Lax`, `Path=/`). Standard sessions last 8 hours, "Remember me" sessions last 30 days. Sessions live in memory — restarting dumbdock logs everyone out. A logout button appears in the nav bar while logged in. |
+
+Unknown `DUMBDOCK_AUTH_MODE` values log a warning and disable auth; selecting a mode without setting `DUMBDOCK_PASSWORD` also disables auth with a warning (there is nothing to compare against).
+
+> **HTTPS note:** the session cookie does not set the `Secure` flag (dumbdock itself serves plain HTTP). Terminate TLS in a reverse proxy (e.g. Traefik) in front of dumbdock when exposing it beyond localhost.
+
+Configure via `.env` (see `.env.example`):
+
+```bash
+DUMBDOCK_AUTH_MODE=web-auth
+DUMBDOCK_PASSWORD=choose-a-strong-password
+DUMBDOCK_PORT=8080
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DOCKER_SOCK` | `/var/run/docker.sock` | Path to the Docker socket |
-| `LISTEN_ADDR` | `:8080` | HTTP listen address |
+| `LISTEN_ADDR` | `:8080` | HTTP listen address (explicit override; wins over `DUMBDOCK_PORT`) |
+| `DUMBDOCK_PORT` | `8080` | Port the app listens on when `LISTEN_ADDR` is unset, and the default host port in `docker-compose.yml.example` |
 | `POLL_INTERVAL` | `10s` | How often to poll Docker for container changes |
 | `DUMBDOCK_CONFIG` | `/config/dumbdock.json` | Path to the JSON override config file |
 | `DUMBDOCK_URL` | *(empty)* | Public URL of the dashboard (used in alert links) |
@@ -263,7 +286,8 @@ environment:
 | `AUTODETECT_GROUP_NAME` | `"Auto Detected"` | Group name for auto-detected containers. Only used when `AUTO_DETECTION` is enabled. |
 | `AUTO_DETECTION_SERVICE_BLACKLIST` | `"server,db,app"` | Comma-separated list of compose service names to skip when trying service-name-based icon matching (e.g., `"server"`, `"server,db,app"`). Generic names are unreliable for icon matching; the container still goes through other fallbacks. |
 | `CONTAINER_BLACKLIST` | *(empty)* | Comma-separated list of container names to hide entirely from the dashboard (e.g., `"dumbdock","traefik"`). Useful for excluding infrastructure containers. |
-| `DUMBDOCK_PASSWORD` | *(empty)* | Enables HTTP Basic Authentication on the dashboard and API. When set, any username is accepted but the password must match this value. Leave empty for no auth. |
+| `DUMBDOCK_PASSWORD` | *(empty)* | Password for dashboard auth. With `DUMBDOCK_AUTH_MODE=http-auth` (or unset) it enables HTTP Basic Authentication (any username accepted); with `web-auth` it is the login-form password. Leave empty for no auth. Auto-generated by `./control.sh setup`. |
+| `DUMBDOCK_AUTH_MODE` | `none` | Authentication mode: `none`, `http-auth`, or `web-auth` (see [Authentication](#authentication)). Unset with `DUMBDOCK_PASSWORD` set behaves as `http-auth`. |
 | `TRAEFIK_API_URL` | *(empty)* | Explicit Traefik API base URL. Overrides auto-discovery. |
 | `TRAEFIK_API_TOKEN` | *(empty)* | Bearer token for Traefik API authentication (sent as `Authorization: Bearer <token>`). Also accepted via `traefikAPIToken` in the config file. |
 | `TRAEFIK_API_USER` | *(empty)* | Username for Traefik Basic auth (use with `TRAEFIK_API_PASS`). |
@@ -456,6 +480,8 @@ go build -o dumbdock .
 ```
 .
 ├── main.go          # Entry point, HTTP server, polling loop
+├── auth.go          # Auth modes (http-auth / web-auth), session store, login/logout
+├── .env.example     # Documented runtime config (copied to .env by control.sh setup)
 ├── docker.go        # Docker API client (socket-based HTTP)
 ├── labels.go        # Label parsing and container card model
 ├── config.go        # JSON config file loading and override logic

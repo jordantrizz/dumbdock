@@ -8,8 +8,11 @@ services:
     environment:
       - POLL_INTERVAL=${POLL_INTERVAL:-10s}
       - DUMBDOCK_PORT=${DUMBDOCK_PORT:-8080}
+      # Auth mode: none (open) | http-auth (HTTP Basic) | web-auth (login form + session cookie).
+      # Unset with DUMBDOCK_PASSWORD set behaves as http-auth. A mode without a
+      # password disables auth with a warning. See README "Authentication".
       - DUMBDOCK_AUTH_MODE=${DUMBDOCK_AUTH_MODE:-none}
-      - DUMBDOCK_PASSWORD=${DUMBDOCK_PASSWORD:-} # enables auth; mode selected by DUMBDOCK_AUTH_MODE (none|http-auth|web-auth)
+      - DUMBDOCK_PASSWORD=${DUMBDOCK_PASSWORD:-} # enables auth for the http-auth/web-auth modes
       # - AUTO_DETECTION=true                            # enable/disable auto-detection
       # - AUTODETECT_GROUP_NAME=Auto Detected            # name for the auto-detected group
       # - AUTO_DETECTION_SERVICE_BLACKLIST=server,db,app # skip service-name-based icon matching for generic names
