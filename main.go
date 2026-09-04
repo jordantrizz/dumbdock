@@ -55,9 +55,18 @@ func main() {
 		socketPath = "/var/run/docker.sock"
 	}
 
+	// Precedence: LISTEN_ADDR wins when set; otherwise DUMBDOCK_PORT
+	// supplies the port; otherwise fall back to :8080.
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
-		listenAddr = ":8080"
+		if port := os.Getenv("DUMBDOCK_PORT"); port != "" {
+			if !strings.HasPrefix(port, ":") {
+				port = ":" + port
+			}
+			listenAddr = port
+		} else {
+			listenAddr = ":8080"
+		}
 	}
 
 	pollInterval := 10 * time.Second
