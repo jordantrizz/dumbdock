@@ -78,6 +78,13 @@ func main() {
 
 	authPassword := os.Getenv("DUMBDOCK_PASSWORD")
 
+	// Auth mode selection. Unset mode with a password keeps the historical
+	// behavior (HTTP Basic auth); unknown values warn and disable auth.
+	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("DUMBDOCK_AUTH_MODE")))
+	if authMode == "" && authPassword != "" {
+		authMode = "http-auth"
+	}
+
 	cfg, err := loadConfig(configPath())
 	if err != nil {
 		log.Printf("warning: config load: %v", err)
@@ -446,9 +453,29 @@ func main() {
 	log.Printf("listening on %s (socket: %s, poll: %s)", listenAddr, socketPath, pollInterval)
 
 	var handler http.Handler = mux
-	if authPassword != "" {
-		log.Println("Basic auth enabled")
-		handler = basicAuth(mux, authPassword)
+	switch authMode {
+	case "", "none":
+		// No auth.
+	case "http-auth":
+		if authPassword == "" {
+			log.Println("warning: DUMBDOCK_AUTH_MODE=http-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
+		} else {
+			log.Println("Basic auth enabled")
+			handler = basicAuth(mux, authPassword)
+		}
+	case "web-auth":
+		if authPassword == "" {
+			log.Println("warning: DUMBDOCK_AUTH_MODE=web-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
+		} else {
+			sessions := newSessionStore()
+			go sessions.cleanupLoop(time.Hour)
+			mux.HandleFunc("POST /api/login", sessions.loginHandler(authPassword))
+			mux.HandleFunc("POST /api/logout", sessions.logoutHandler())
+			log.Println("Web auth enabled")
+			handler = sessions.middleware(mux)
+		}
+	default:
+		log.Printf("warning: unknown DUMBDOCK_AUTH_MODE %q; auth disabled", authMode)
 	}
 	log.Fatal(http.ListenAndServe(listenAddr, handler))
 }
