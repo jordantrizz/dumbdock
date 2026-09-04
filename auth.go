@@ -159,14 +159,14 @@ func (s *sessionStore) logoutHandler() http.HandlerFunc {
 	}
 }
 
-// middleware enforces session auth for web-auth mode. The login/logout API
-// and the static shell (dashboard HTML + favicon, which hosts the login
-// overlay) stay public; every other request needs a valid session cookie.
+// middleware enforces session auth for web-auth mode. The login/logout API,
+// the public auth-status endpoint, and the static shell (dashboard HTML +
+// favicon, which hosts the login overlay) stay public; every other request needs a valid session cookie.
 // Unauthorized requests always get 401 JSON — never a redirect — so the
 // frontend can show the login overlay without a redirect loop.
 func (s *sessionStore) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/login" || r.URL.Path == "/api/logout" {
+		if r.URL.Path == "/api/login" || r.URL.Path == "/api/logout" || r.URL.Path == "/api/auth" {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -126,6 +126,20 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .footer-link:hover{color:#f0f2f5}
 .footer-link svg{vertical-align:middle}
 
+/* ===== Web Auth Login ===== */
+.login-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:2000;align-items:center;justify-content:center}
+.login-overlay.open{display:flex}
+.login-box{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:2rem;width:340px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,0.5)}
+.login-box h2{margin:0 0 1.25rem;color:#f0f2f5;text-transform:none;letter-spacing:0}
+.login-box label{display:block;font-size:0.85rem;color:#8b949e;margin-bottom:0.9rem}
+.login-box input[type=text],.login-box input[type=password]{display:block;width:100%;margin-top:0.35rem;padding:0.55rem 0.65rem;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e1e4e8;font-size:0.9rem;outline:none}
+.login-box input[type=text]:focus,.login-box input[type=password]:focus{border-color:#58a6ff}
+.login-remember{display:flex !important;align-items:center;gap:0.5rem;cursor:pointer}
+.login-error{display:none;color:#f85149;font-size:0.85rem;margin-bottom:0.9rem}
+.login-error.show{display:block}
+.login-box button[type=submit]{width:100%;padding:0.6rem;border-radius:6px;border:1px solid #1f6feb;background:#1f6feb;color:#f0f2f5;cursor:pointer;font-size:0.9rem}
+.login-box button[type=submit]:hover{background:#388bfd}
+
 /* ===== Traefik Dashboard Page ===== */
 .traefik-version-banner{margin-bottom:1.25rem;padding:1rem 1.25rem;background:#1a2332;border:1px solid #30363d;border-radius:8px;font-size:0.95rem;line-height:1.5}
 .traefik-version-banner strong{color:#f0f2f5;font-size:1.1rem}
@@ -220,6 +234,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
   <span class="nav-separator"></span>
   <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group, compose project, and dependency views">By Compose</button>
   <button class="copy-json-btn" id="copy-json-btn" onclick="copyDashboardJSON()" title="Copy all dashboard data as JSON">Copy JSON</button>
+  <button class="nav-tab" id="logout-btn" onclick="logout()" title="Log out" style="display:none">Logout</button>
 </div>
 
 <div id="page-dashboard">
@@ -259,6 +274,19 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 </div>
 
 <div id="detail-backdrop" class="detail-backdrop"></div>
+
+<div id="login-overlay" class="login-overlay">
+  <div class="login-box">
+    <h2>dumbdock login</h2>
+    <form onsubmit="return submitLogin(event)">
+      <label>Username<input id="login-username" type="text" autocomplete="username" placeholder="any username"></label>
+      <label>Password<input id="login-password" type="password" autocomplete="current-password"></label>
+      <label class="login-remember"><input id="login-remember" type="checkbox"> Remember me</label>
+      <div id="login-error" class="login-error"></div>
+      <button type="submit">Log in</button>
+    </form>
+  </div>
+</div>
 <script>
 let dashboardData = null;
 // View mode: 'group' (dumbdock.group labels), 'compose' (compose projects),
@@ -267,7 +295,8 @@ let viewMode = 'group';
 const expandedItems = new Set();
 async function load() {
   try {
-    const res = await fetch('/api/containers');
+    const res = await apiFetch('/api/containers');
+    if (!res) return;
     const data = await res.json();
     dashboardData = data;
     // Restore view mode from localStorage after data loads.
@@ -615,9 +644,100 @@ function formatTimestamp(unix) {
   return Math.floor(diff / 2592000) + ' months ago';
 }
 
-load();
+// ---- Web Auth ----
+let authMode = 'none';
+let authed = true;
+
+// apiFetch wraps fetch for dashboard API calls: a 401 in web-auth mode means
+// the session is missing or expired, so show the login overlay and yield
+// null (callers return early). Other modes and errors pass through.
+async function apiFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401 && authMode === 'web-auth') {
+    authed = false;
+    updateAuthUI();
+    showLogin();
+    return null;
+  }
+  return res;
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/auth');
+    const st = await res.json();
+    authMode = st.mode || 'none';
+    authed = !!st.authenticated;
+  } catch (e) {
+    authMode = 'none';
+    authed = true;
+  }
+  updateAuthUI();
+}
+
+// The logout button is only visible for an authenticated web-auth session
+// (HTTP Basic auth has no server-side session to end; no-auth needs nothing).
+function updateAuthUI() {
+  var btn = document.getElementById('logout-btn');
+  if (btn) btn.style.display = (authMode === 'web-auth' && authed) ? '' : 'none';
+}
+
+function showLogin() {
+  document.getElementById('login-overlay').classList.add('open');
+  var pw = document.getElementById('login-password');
+  if (pw) pw.focus();
+}
+
+function hideLogin() {
+  document.getElementById('login-overlay').classList.remove('open');
+  var err = document.getElementById('login-error');
+  if (err) { err.textContent = ''; err.classList.remove('show'); }
+}
+
+async function submitLogin(e) {
+  e.preventDefault();
+  var err = document.getElementById('login-error');
+  var username = document.getElementById('login-username').value;
+  var password = document.getElementById('login-password').value;
+  var remember = document.getElementById('login-remember').checked;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: username, password: password, remember: remember})
+    });
+    if (!res.ok) throw new Error('login failed');
+  } catch (ex) {
+    err.textContent = 'Invalid username or password.';
+    err.classList.add('show');
+    return false;
+  }
+  document.getElementById('login-password').value = '';
+  authed = true;
+  updateAuthUI();
+  hideLogin();
+  load();
+  loadVersion();
+  return false;
+}
+
+async function logout() {
+  try { await fetch('/api/logout', {method: 'POST'}); } catch (e) {}
+  authed = false;
+  updateAuthUI();
+  showLogin();
+}
+
+checkAuth().then(function() {
+  if (authMode === 'web-auth' && !authed) {
+    showLogin();
+  } else {
+    load();
+  }
+});
 loadTraefik();
 setInterval(function() {
+  if (authMode === 'web-auth' && !authed) return;
   load();
   // Only refresh Traefik data if the Traefik tab is currently visible.
   var traefikPage = document.getElementById('page-traefik');
@@ -633,7 +753,8 @@ setInterval(function() {
 
 async function loadVersion() {
   try {
-    const res = await fetch('/api/version');
+    const res = await apiFetch('/api/version');
+    if (!res) return;
     const data = await res.json();
     document.getElementById('version-display').textContent = 'v' + data.version + ' (build ' + data.build + ')';
   } catch (e) {
@@ -760,7 +881,8 @@ async function loadIcons() {
   const container = document.getElementById('iconResults');
   container.innerHTML = '<div class="icon-loading">Loading icons...</div>';
   try {
-    const res = await fetch('/api/icons');
+    const res = await apiFetch('/api/icons');
+    if (!res) return;
     iconsData = await res.json();
     buildProviderFilters();
     applyFilter();
@@ -931,7 +1053,8 @@ function renderIconTable(append) {
 async function loadNetworking() {
   var container = document.getElementById('networking-app');
   try {
-    var res = await fetch('/api/networking');
+    var res = await apiFetch('/api/networking');
+    if (!res) return;
     var data = await res.json();
     renderNetworking(data);
   } catch (e) {
@@ -1003,7 +1126,8 @@ function formatNetworkPorts(ports) {
 async function loadTraefik() {
   var container = document.getElementById('traefik-app');
   try {
-    var res = await fetch('/api/traefik');
+    var res = await apiFetch('/api/traefik');
+    if (!res) return;
     var data = await res.json();
     renderTraefik(data);
   } catch (e) {

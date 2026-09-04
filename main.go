@@ -85,6 +85,9 @@ func main() {
 		authMode = "http-auth"
 	}
 
+	// Session store for web-auth mode; initialized in the auth dispatch below.
+	var webSessions *sessionStore
+
 	cfg, err := loadConfig(configPath())
 	if err != nil {
 		log.Printf("warning: config load: %v", err)
@@ -430,6 +433,34 @@ func main() {
 		})
 	})
 
+	// Public auth status for the login UI: which mode is active and whether
+	// this request is already authenticated. Stays unprotected in every mode
+	// (it reveals no secrets) so the frontend can decide when to show the
+	// login overlay and logout button.
+	mux.HandleFunc("GET /api/auth", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		mode := authMode
+		if mode == "" {
+			mode = "none"
+		}
+		authed := true
+		switch authMode {
+		case "http-auth":
+			_, pass, ok := r.BasicAuth()
+			authed = ok && authPassword != "" && subtle.ConstantTimeCompare([]byte(pass), []byte(authPassword)) == 1
+		case "web-auth":
+			authed = false
+			if c, err := r.Cookie(sessionCookieName); err == nil && webSessions != nil {
+				authed = webSessions.valid(c.Value)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"mode":          mode,
+			"authenticated": authed,
+		})
+	})
+
 	mux.HandleFunc("GET /dumbdock.svg", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -468,6 +499,7 @@ func main() {
 			log.Println("warning: DUMBDOCK_AUTH_MODE=web-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
 		} else {
 			sessions := newSessionStore()
+			webSessions = sessions
 			go sessions.cleanupLoop(time.Hour)
 			mux.HandleFunc("POST /api/login", sessions.loginHandler(authPassword))
 			mux.HandleFunc("POST /api/logout", sessions.logoutHandler())
