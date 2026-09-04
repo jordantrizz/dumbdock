@@ -39,8 +39,12 @@ func newDockerClient(socketPath string) *http.Client {
 	}
 }
 
-func fetchContainers(client *http.Client) ([]dockerContainer, error) {
-	resp, err := client.Get("http://localhost/v1.45/containers/json?all=false")
+func fetchContainers(client *http.Client, all bool) ([]dockerContainer, error) {
+	url := "http://localhost/v1.45/containers/json?all=false"
+	if all {
+		url = "http://localhost/v1.45/containers/json?all=true"
+	}
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch containers: %w", err)
 	}

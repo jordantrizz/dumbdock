@@ -15,12 +15,14 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Smart icon resolution** — automatically detects icons for unlabeled containers from [selfhst/icons](https://github.com/selfhst/icons), [dashboard-icons](https://github.com/homarr-labs/dashboard-icons), or any configured icon set based on the image name. Matched containers get their own group (default: "Auto Detected") so they don't clutter the "Unlabeled" section. Falls back to a generic placeholder when no specific match is found.
 - **Dumbdock branding** — a built-in SVG icon (`/dumbdock.svg`) serves as favicon, nav bar logo, and auto-detection icon for dumbdock containers themselves.
 - **Grouped card layout** — labeled containers appear in organized groups with responsive cards showing icon, name, description, link, and status.
+- **Dependency grouping** — a third view groups containers under the container(s) they depend on, read automatically from the Docker Compose `com.docker.compose.depends_on` label (no `dumbdock.*` label needed). The dashboard toggle cycles **By Group → By Compose → By Dependency**.
 - **Unlabeled container section** — containers without `dumbdock.*` labels appear in an expandable list that shows current labels, container info, and copy-paste-ready examples for labeling via docker-compose or `dumbdock.json`.
 - **Config file overrides** — optionally define names, groups, icons, etc. in a JSON config file instead of (or in addition to) Docker labels.
 - **Alert notifications** — get notified via [ntfy.sh](https://ntfy.sh) or [Gotify](https://gotify.net) when new unlabeled containers are detected, with configurable cooldown.
 - **Password protection** — optional HTTP Basic Authentication via the `DUMBDOCK_PASSWORD` environment variable. When set, all dashboard and API access requires the password (any username accepted).
 - **Network Warnings** — identifies containers with ports exposed on non-localhost IPs (▲) and surfaces [Traefik](https://traefik.io) proxy configuration (🔗) with clickable URLs extracted from `traefik.http.routers.*.rule` labels.
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
+- **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
 - **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `scratch`.
 - **Cache-aware HTTP headers** — serves the dashboard HTML with `ETag` and `Cache-Control: no-cache` headers, and API responses with `Cache-Control: no-cache`. The ETag is derived from a build-time version string (Git SHA + timestamp) injected via ldflags, enabling browsers to revalidate efficiently with `304 Not Modified`. Version defaults to `"dev"` for local builds; Docker builds automatically get a version tag.
 
@@ -29,13 +31,14 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 ### Using Docker Compose (recommended)
 
 ```bash
-# Copy the example compose file
-cp docker-compose.yml.example docker-compose.yml
+# One command: creates docker-compose.yml from the example (if missing),
+# creates .env, builds, starts the stack, and waits for readiness
+./control.sh setup
 
+# Or manually:
+# cp docker-compose.yml.example docker-compose.yml
 # (Optional) Edit docker-compose.yml to configure alerts or mount a config file
-
-# Start
-docker compose up -d
+# docker compose up -d
 ```
 
 Then open **http://localhost:8080**.
@@ -59,6 +62,24 @@ go build -o dumbdock .
 ```
 
 The embedded version (from `VERSION`) and an API endpoint (`/api/version`) let you check which build is running. For Docker builds a build number based on `git rev-parse --short HEAD` (short commit SHA) is also injected — local builds default to build `"0"`.
+
+## Operations (control.sh)
+
+A single `./control.sh` script manages the Docker Compose stack. It auto-detects the compose files, main service, and build args — no configuration needed. `setup` auto-creates `docker-compose.yml` from `docker-compose.yml.example` when the real file is missing, and creates an empty `.env` (dumbdock needs no environment file).
+
+| Command | Description |
+|---------|-------------|
+| `./control.sh setup [--force] [dev\|prod]` | Create/refresh `.env`, start the stack |
+| `./control.sh start` | Start the stack |
+| `./control.sh stop` | Stop and remove containers |
+| `./control.sh restart` | Restart containers (no rebuild) |
+| `./control.sh rebuild` | `git pull` + rebuild images + recreate containers |
+| `./control.sh status` | Show container + version status |
+| `./control.sh logs [service]` | Tail logs (default: all services) |
+| `./control.sh reset [--yes]` | **DESTRUCTIVE** wipe (volumes + data) + fresh setup |
+| `./control.sh help` | Show help |
+
+> **Note:** `./control.sh rebuild` replaces the former `rebuild.sh` script, which has been removed.
 
 ## Labeling Containers
 
@@ -129,9 +150,34 @@ volumes:
   - ./dumbdock.json:/config/dumbdock.json:ro
 ```
 
+### Grouping by Dependency
+
+In addition to grouping by `dumbdock.group` labels or by Compose project, the dashboard can group containers by **dependency**. This view reads the `com.docker.compose.depends_on` label that Docker Compose sets automatically — no `dumbdock.*` label is required.
+
+Containers are grouped under the container(s) they depend on, and the group heading is the dependency container's display name (`dumbdock.name` if set, otherwise the container name). For example, with this compose file:
+
+```yaml
+services:
+  db:
+    image: postgres:16
+  app:
+    image: myapp
+    depends_on:
+      - db
+```
+
+The **By Dependency** view shows the `app` container under a `db` group heading.
+
+Behavior notes:
+
+- **Direct dependencies only** — grouping uses the immediate `depends_on` targets; there is no transitive resolution (a container that depends on `api`, which itself depends on `db`, is grouped under `api`, not `db`).
+- **Multiple dependencies** — a container that depends on several services appears in each of those dependency groups.
+- **No resolvable dependency** — containers with no `depends_on` label, or whose dependency service isn't running, go under a `Standalone` group.
+- **Toggle** — the button in the nav bar cycles **By Group → By Compose → By Dependency → By Group**. Your choice is remembered across page loads.
+
 ## Traefik Dashboard
 
-When a running Traefik container is detected (image name containing "traefik"), dumbdock adds a **Traefik** tab to the navigation bar. Clicking it displays a full status dashboard fetched from the Traefik API.
+The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting.
 
 ### Auto-Discovery
 
@@ -142,7 +188,7 @@ dumbdock automatically finds the Traefik API URL using a fallback chain:
 3. **Docker network IP** — reads the container's IP address from its first Docker network and appends port `:8080`. If the container's command specifies a custom entrypoint port (`--entrypoints.traefik.address=:PORT`), that port is used instead.
 4. **Published port** — falls back to the first published TCP port on `127.0.0.1` (preferring 8080).
 
-If none of these succeed, no Traefik tab appears.
+If none of these succeed, the Traefik tab shows an error explaining that the API URL could not be resolved.
 
 ### Data Displayed
 
@@ -307,6 +353,10 @@ dumbdock surfaces two types of network-related warnings on every container card 
 A red triangle (▲) indicates the container has at least one port bound to a non-localhost IP (e.g., `0.0.0.0`, a public interface). Hovering shows which IPs are affected. Containers with all ports bound to `127.0.0.1` or `::1` show no warning.
 
 **Best practice:** Bind containers to `127.0.0.1` and let a reverse proxy (like Traefik) handle external traffic.
+
+### Networking Tab Banner ⚠
+
+On the **Networking** tab, containers that publish ports on `0.0.0.0` (all interfaces) trigger a warning banner at the top of the page listing the affected containers, and each affected row shows a ⚠ marker. This makes it easy to spot services that are reachable from any network interface rather than just `127.0.0.1` or a specific private IP.
 
 ### Traefik Detection 🔗
 

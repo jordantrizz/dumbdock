@@ -10,6 +10,7 @@
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#0f1117;color:#e1e4e8;padding:2rem}
 h1{font-size:1.5rem;margin-bottom:1.5rem;color:#f0f2f5}
 h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em}
+h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:uppercase;letter-spacing:0.04em}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
 .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1rem;display:flex;flex-direction:column}
 .card-header{display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem}
@@ -28,7 +29,8 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .card-warnings{display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin-bottom:0.5rem;font-size:0.8rem}
 .warning-icon{cursor:help;line-height:1;font-size:1rem}
 .warning-public{color:#f85149}
-.warning-private{color:#3fb950}
+.warning-private{color:#d29922}
+.warning-local{color:#3fb950}
 .warning-traefik{color:#58a6ff}
 .traefik-url{color:#58a6ff;text-decoration:none;font-size:0.75rem;display:inline-flex;align-items:center;gap:0.15rem;padding:1px 4px;border-radius:3px;background:#1a2332}
 .traefik-url:hover{background:#21262d;text-decoration:underline}
@@ -68,7 +70,8 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .legend-item{display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap}
 .legend-icon{font-size:1rem;line-height:1}
 .legend-icon.legend-public{color:#f85149}
-.legend-icon.legend-private{color:#3fb950}
+.legend-icon.legend-private{color:#d29922}
+.legend-icon.legend-local{color:#3fb950}
 .legend-icon.legend-traefik{color:#58a6ff}
 
 /* Nav */
@@ -186,6 +189,21 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 .traefik-error-banner .err-retry{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #f85149;background:transparent;color:#f85149;cursor:pointer;font-size:0.8rem;margin-top:0.5rem;transition:all 0.15s}
 .traefik-error-banner .err-retry:hover{background:#3d1116}
 
+.traefik-info-banner{padding:1rem;background:#0d1a2b;border:1px solid #58a6ff;border-radius:8px;color:#f0f2f5;margin-bottom:1rem;display:flex;align-items:flex-start;gap:0.75rem}
+.traefik-info-banner .err-icon{color:#58a6ff;font-size:1.2rem;flex-shrink:0;line-height:1}
+.traefik-info-banner .err-body{flex:1}
+.traefik-info-banner .err-title{font-weight:600;margin-bottom:0.3rem}
+.traefik-info-banner .err-detail{font-size:0.85rem;color:#8b949e;line-height:1.5}
+.traefik-info-banner .err-retry{padding:0.3rem 0.7rem;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;cursor:pointer;font-size:0.8rem;margin-top:0.5rem;transition:all 0.15s}
+.traefik-info-banner .err-retry:hover{background:#1a2332}
+.networking-warning-banner{padding:1rem;background:#2d2410;border:1px solid #d29922;border-radius:8px;color:#f0f2f5;margin-bottom:1rem;display:flex;align-items:flex-start;gap:0.75rem}
+.networking-warning-banner .err-icon{color:#d29922;font-size:1.2rem;flex-shrink:0;line-height:1}
+.networking-warning-banner .err-body{flex:1}
+.networking-warning-banner .err-title{font-weight:600;margin-bottom:0.3rem}
+.networking-warning-banner .err-detail{font-size:0.85rem;color:#8b949e;line-height:1.5}
+.networking-exposed{color:#d29922;cursor:help;font-size:0.9rem;margin-left:0.3rem}
+.traefik-code{display:block;margin-top:0.5rem;padding:0.6rem 0.8rem;background:#161b22;border:1px solid #30363d;border-radius:6px;font-family:monospace;font-size:0.8rem;color:#d29922;word-break:break-all;white-space:pre-wrap}
+
 .traefik-server-list{display:flex;flex-direction:column;gap:0.2rem}
 .traefik-server-list .server-item{font-size:0.8rem;font-family:monospace;word-break:break-all}
 </style>
@@ -195,11 +213,12 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   <span class="nav-title"><img src="/dumbdock.svg" width="24" height="24" alt="" style="vertical-align:middle;margin-right:6px">dumbdock</span>
   <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="nav-tab" onclick="switchTab('networking')">Networking</button>
     <button class="nav-tab" onclick="switchTab('icons')">Icons</button>
-    <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')" style="display:none">Traefik</button>
+    <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
   </div>
   <span class="nav-separator"></span>
-  <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group and compose project view">By Compose</button>
+  <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group, compose project, and dependency views">By Compose</button>
   <button class="copy-json-btn" id="copy-json-btn" onclick="copyDashboardJSON()" title="Copy all dashboard data as JSON">Copy JSON</button>
 </div>
 
@@ -207,6 +226,7 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 <div class="legend">
   <span class="legend-item"><span class="legend-icon legend-public">&#9650;</span> Public port binding</span>
   <span class="legend-item"><span class="legend-icon legend-private">&#9679;</span> Private port binding</span>
+  <span class="legend-item"><span class="legend-icon legend-local">&#9679;</span> Localhost port binding</span>
   <span class="legend-item"><span class="legend-icon legend-traefik">&#128279;</span> Traefik enabled</span>
   <span class="legend-item"><span class="legend-icon">&#127760;</span> Traefik URL</span>
 </div>
@@ -226,6 +246,12 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
   <div id="iconResults"></div>
 </div>
 
+<div id="page-networking" style="display:none">
+  <div id="networking-app">
+    <div class="loading">Loading networking data...</div>
+  </div>
+</div>
+
 <div id="page-traefik" style="display:none">
   <div id="traefik-app">
     <div class="loading">Loading Traefik status...</div>
@@ -235,28 +261,29 @@ h2{font-size:1.1rem;margin:1.5rem 0 0.75rem;color:#8b949e;text-transform:upperca
 <div id="detail-backdrop" class="detail-backdrop"></div>
 <script>
 let dashboardData = null;
-let composeGroupView = false;
+// View mode: 'group' (dumbdock.group labels), 'compose' (compose projects),
+// or 'dependency' (compose depends_on).
+let viewMode = 'group';
 const expandedItems = new Set();
 async function load() {
   try {
     const res = await fetch('/api/containers');
     const data = await res.json();
     dashboardData = data;
-    // Restore toggle state from localStorage after data loads.
-    if (localStorage.getItem('dumbdock-compose-view') === 'true') {
-      composeGroupView = true;
-      var btn = document.getElementById('group-toggle-btn');
-      if (btn) {
-        btn.textContent = 'By Group';
-        btn.classList.add('active');
-      }
+    // Restore view mode from localStorage after data loads.
+    var savedView = localStorage.getItem('dumbdock-view');
+    if (savedView === 'compose' || savedView === 'dependency') {
+      viewMode = savedView;
+    } else if (localStorage.getItem('dumbdock-compose-view') === 'true') {
+      // Migration from the old two-state toggle.
+      viewMode = 'compose';
+    }
+    var btn = document.getElementById('group-toggle-btn');
+    if (btn) {
+      btn.textContent = viewMode === 'group' ? 'By Compose' : (viewMode === 'compose' ? 'By Dependency' : 'By Group');
+      btn.classList.toggle('active', viewMode !== 'group');
     }
     render(data);
-    // Show/hide the Traefik nav tab based on whether a Traefik container was detected.
-    var traefikTab = document.getElementById('nav-traefik');
-    if (traefikTab) {
-      traefikTab.style.display = data.hasTraefik ? '' : 'none';
-    }
   } catch (e) {
     document.getElementById('app').innerHTML = '<div class="error">Failed to load containers: ' + e.message + '</div>';
   }
@@ -265,11 +292,22 @@ async function load() {
 function render(data) {
   let html = '';
 
-  if (composeGroupView && data.composeGrouped && data.composeProjects) {
+  if (viewMode === 'compose' && data.composeGrouped && data.composeProjects) {
     for (const project of data.composeProjects) {
       const cards = data.composeGrouped[project];
       if (!cards || cards.length === 0) continue;
       html += '<h2>' + escapeHtml(project) + ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + cards.length + ')</span></h2>';
+      html += '<div class="grid">';
+      for (const card of cards) {
+        html += renderCard(card);
+      }
+      html += '</div>';
+    }
+  } else if (viewMode === 'dependency' && data.dependencyGrouped && data.dependencyGroups) {
+    for (const group of data.dependencyGroups) {
+      const cards = data.dependencyGrouped[group];
+      if (!cards || cards.length === 0) continue;
+      html += '<h2>' + escapeHtml(group) + ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + cards.length + ')</span></h2>';
       html += '<div class="grid">';
       for (const card of cards) {
         html += renderCard(card);
@@ -297,8 +335,10 @@ function render(data) {
     }
   }
 
-  var hasGroups = composeGroupView && data.composeProjects ? data.composeProjects.length > 0 : data.groups.length > 0;
-  var hasUnlabeled = composeGroupView ? false : data.unlabeled && data.unlabeled.length > 0;
+  var hasGroups = (viewMode === 'compose' && data.composeProjects) ? data.composeProjects.length > 0
+    : (viewMode === 'dependency' && data.dependencyGroups) ? data.dependencyGroups.length > 0
+    : data.groups.length > 0;
+  var hasUnlabeled = (viewMode === 'compose' || viewMode === 'dependency') ? false : data.unlabeled && data.unlabeled.length > 0;
   if (!hasGroups && !hasUnlabeled) {
     html = '<div class="loading">No running containers found.</div>';
   }
@@ -389,7 +429,11 @@ function renderDetailSections(card) {
   }
   if (card.hasPrivateBinding) {
     const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
-    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Private Binding</span><span class="unlabeled-info-value" style="color:#3fb950">Bound to ' + escapeHtml(ips) + '</span>');
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Private Binding</span><span class="unlabeled-info-value" style="color:#d29922">Bound to ' + escapeHtml(ips) + '</span>');
+  }
+  if (card.hasLocalBinding) {
+    const ips = card.localBindingIPs && card.localBindingIPs.length > 0 ? card.localBindingIPs.join(', ') : '127.0.0.1';
+    networkWarningsItems.push('<span class="unlabeled-info-key">&#9679; Localhost Binding</span><span class="unlabeled-info-value" style="color:#3fb950">Bound to ' + escapeHtml(ips) + '</span>');
   }
   if (card.traefikEnabled) {
     networkWarningsItems.push('<span class="unlabeled-info-key">&#128279; Traefik</span><span class="unlabeled-info-value" style="color:#58a6ff">Enabled on this container</span>');
@@ -454,6 +498,10 @@ function renderCard(card) {
     const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
     warnings.push('<span class="warning-icon warning-private" title="Port bound to private IP: ' + escapeHtml(ips) + '">&#9679;</span>');
   }
+  if (card.hasLocalBinding) {
+    const ips = card.localBindingIPs && card.localBindingIPs.length > 0 ? card.localBindingIPs.join(', ') : '127.0.0.1';
+    warnings.push('<span class="warning-icon warning-local" title="Port bound to localhost: ' + escapeHtml(ips) + '">&#9679;</span>');
+  }
   if (card.traefikEnabled) {
     warnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
   }
@@ -497,6 +545,10 @@ function renderUnlabeled(card) {
   if (card.hasPrivateBinding) {
     const ips = card.privateBindingIPs && card.privateBindingIPs.length > 0 ? card.privateBindingIPs.join(', ') : 'private';
     unlabeledWarnings.push('<span class="warning-icon warning-private" title="Port bound to private IP: ' + escapeHtml(ips) + '">&#9679;</span>');
+  }
+  if (card.hasLocalBinding) {
+    const ips = card.localBindingIPs && card.localBindingIPs.length > 0 ? card.localBindingIPs.join(', ') : '127.0.0.1';
+    unlabeledWarnings.push('<span class="warning-icon warning-local" title="Port bound to localhost: ' + escapeHtml(ips) + '">&#9679;</span>');
   }
   if (card.traefikEnabled) {
     unlabeledWarnings.push('<span class="warning-icon warning-traefik" title="Traefik enabled">&#128279;</span>');
@@ -572,6 +624,11 @@ setInterval(function() {
   if (traefikPage && traefikPage.style.display !== 'none') {
     loadTraefik();
   }
+  // Only refresh networking data if the Networking tab is currently visible.
+  var networkingPage = document.getElementById('page-networking');
+  if (networkingPage && networkingPage.style.display !== 'none') {
+    loadNetworking();
+  }
 }, 10000);
 
 async function loadVersion() {
@@ -644,14 +701,20 @@ function copyDashboardJSON() {
   }
 }
 
-// ---- Group view toggle ----
+// ---- View mode toggle (group -> compose -> dependency -> group) ----
 function toggleGroupView() {
-  composeGroupView = !composeGroupView;
-  localStorage.setItem('dumbdock-compose-view', composeGroupView ? 'true' : '');
+  if (viewMode === 'group') {
+    viewMode = 'compose';
+  } else if (viewMode === 'compose') {
+    viewMode = 'dependency';
+  } else {
+    viewMode = 'group';
+  }
+  localStorage.setItem('dumbdock-view', viewMode);
   var btn = document.getElementById('group-toggle-btn');
   if (btn) {
-    btn.textContent = composeGroupView ? 'By Group' : 'By Compose';
-    btn.classList.toggle('active', composeGroupView);
+    btn.textContent = viewMode === 'group' ? 'By Compose' : (viewMode === 'compose' ? 'By Dependency' : 'By Group');
+    btn.classList.toggle('active', viewMode !== 'group');
   }
   if (dashboardData) {
     render(dashboardData);
@@ -673,6 +736,11 @@ function switchTab(tab) {
     document.querySelector('.nav-tab:first-child').classList.add('active');
     document.getElementById('page-dashboard').style.display = '';
     document.getElementById('copy-json-btn').style.display = '';
+  } else if (tab === 'networking') {
+    document.querySelectorAll('.nav-tab')[1].classList.add('active');
+    document.getElementById('page-networking').style.display = '';
+    document.getElementById('copy-json-btn').style.display = 'none';
+    loadNetworking();
   } else if (tab === 'traefik') {
     document.getElementById('nav-traefik').classList.add('active');
     document.getElementById('page-traefik').style.display = '';
@@ -858,6 +926,78 @@ function renderIconTable(append) {
   }
 }
 
+// ===== Networking =====
+
+async function loadNetworking() {
+  var container = document.getElementById('networking-app');
+  try {
+    var res = await fetch('/api/networking');
+    var data = await res.json();
+    renderNetworking(data);
+  } catch (e) {
+    container.innerHTML = '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Failed to load networking data</div><div class="err-detail">' + escapeHtml(e.message) + '</div><button class="err-retry" onclick="loadNetworking()">Retry</button></div></div>';
+  }
+}
+
+function renderNetworking(data) {
+  var container = document.getElementById('networking-app');
+  var html = '';
+
+  // Warning banner for containers publishing ports on 0.0.0.0 (all interfaces).
+  var publicExposed = data.publicExposed || [];
+  if (publicExposed.length > 0) {
+    html += '<div class="networking-warning-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Containers exposed on all interfaces (0.0.0.0)</div><div class="err-detail">The following containers publish ports on 0.0.0.0, making them reachable from any network interface. Consider binding to 127.0.0.1 or a specific private IP if they should not be publicly accessible: <strong>' + publicExposed.map(escapeHtml).join(', ') + '</strong></div></div></div>';
+  }
+
+  // Running section: one table per network group.
+  var running = data.running || [];
+  html += '<h2>Running <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + running.length + ' networks)</span></h2>';
+  if (running.length === 0) {
+    html += '<div class="traefik-empty">No running containers.</div>';
+  } else {
+    for (const group of running) {
+      html += '<h3>' + escapeHtml(group.name) + (group.driver ? ' <span style="color:#6e7681;font-weight:400;font-size:0.8rem">(' + escapeHtml(group.driver) + ')</span>' : '') + '</h3>';
+      html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Container</th><th>IP</th><th>Ports</th></tr></thead><tbody>';
+      for (const c of group.containers) {
+        var nameCell = escapeHtml(c.name);
+        if (c.exposedPublic) {
+          nameCell += ' <span class="networking-exposed" title="Ports published on 0.0.0.0 (all interfaces)">&#9888;</span>';
+        }
+        html += '<tr><td>' + nameCell + '</td><td>' + escapeHtml(c.ip || '—') + '</td><td>' + formatNetworkPorts(c.ports) + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+  }
+
+  // Stopped section: flat table.
+  var stopped = data.stopped || [];
+  html += '<h2>Stopped <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + stopped.length + ')</span></h2>';
+  if (stopped.length === 0) {
+    html += '<div class="traefik-empty">No stopped containers.</div>';
+  } else {
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Container</th><th>Image</th><th>Networks</th><th>Ports</th></tr></thead><tbody>';
+    for (const c of stopped) {
+      html += '<tr><td>' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.image) + '</td><td>—</td><td>—</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function formatNetworkPorts(ports) {
+  if (!ports || ports.length === 0) return '—';
+  var parts = [];
+  for (const p of ports) {
+    if (p.external > 0) {
+      parts.push(escapeHtml(String(p.internal)) + ' → ' + escapeHtml(String(p.external)) + '/' + escapeHtml(p.type));
+    } else {
+      parts.push(escapeHtml(String(p.internal)) + '/' + escapeHtml(p.type));
+    }
+  }
+  return parts.join(', ');
+}
+
 // ===== Traefik Dashboard =====
 
 async function loadTraefik() {
@@ -875,7 +1015,7 @@ function renderTraefik(resp) {
   var container = document.getElementById('traefik-app');
 
   if (!resp.found) {
-    container.innerHTML = '<div class="traefik-empty">No Traefik container detected. Start a container with \"traefik\" in the image name.</div>';
+    container.innerHTML = '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body"><div class="err-title">Traefik not detected</div><div class="err-detail">No running container with "traefik" in its image name was found. Start a Traefik container to enable the dashboard, for example:<code class="traefik-code">docker run -d --name traefik -p 8080:8080 -p 80:80 -v /var/run/docker.sock:/var/run/docker.sock traefik:v3</code></div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
     return;
   }
 
@@ -883,7 +1023,11 @@ function renderTraefik(resp) {
 
   // Error banner (if API is unreachable)
   if (resp.error && !resp.data) {
-    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Traefik container detected but API is not accessible</div><div class="err-detail">' + escapeHtml(resp.error) + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
+    var errDetail = escapeHtml(resp.error);
+    if (resp.apiUrl) {
+      errDetail += '<br>API: <code>' + escapeHtml(resp.apiUrl) + '</code>';
+    }
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Traefik container detected but API is not accessible</div><div class="err-detail">' + errDetail + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
     container.innerHTML = html;
     return;
   }

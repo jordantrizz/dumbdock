@@ -43,6 +43,10 @@ type cardResponse struct {
 	// Compose project grouping (alternative view)
 	ComposeGrouped  map[string][]containerCard `json:"composeGrouped,omitempty"`
 	ComposeProjects []string                   `json:"composeProjects,omitempty"`
+
+	// Dependency grouping (alternative view)
+	DependencyGrouped  map[string][]containerCard `json:"dependencyGrouped,omitempty"`
+	DependencyProjects []string                   `json:"dependencyGroups,omitempty"`
 }
 
 func main() {
@@ -83,9 +87,12 @@ func main() {
 	var grouped map[string][]containerCard
 	var composeGrouped map[string][]containerCard
 	var composeProjects []string
+	var dependencyGrouped map[string][]containerCard
+	var dependencyProjects []string
+	var networkingData networkingResponse
 
 	refresh := func() {
-		containers, err := fetchContainers(client)
+		containers, err := fetchContainers(client, false)
 		if err != nil {
 			log.Printf("error fetching containers: %v", err)
 			return
@@ -112,9 +119,11 @@ func main() {
 			card.Ports = formatPorts(c.Ports)
 			card.Labels = c.Labels
 			card.ComposeProject = c.Labels["com.docker.compose.project"]
+			card.ServiceName = c.Labels["com.docker.compose.service"]
+			card.DependsOn = parseDependsOn(c.Labels["com.docker.compose.depends_on"])
 			card.Created = c.Created
 
-			card.HasPublicBinding, card.PublicBindingIPs, card.HasPrivateBinding, card.PrivateBindingIPs = checkPortBindings(c.Ports)
+			card.HasPublicBinding, card.PublicBindingIPs, card.HasPrivateBinding, card.PrivateBindingIPs, card.HasLocalBinding, card.LocalBindingIPs = checkPortBindings(c.Ports)
 			card.TraefikEnabled, card.TraefikURLs = parseTraefikLabels(c.Labels)
 
 			if card.Icon == "" {
@@ -272,16 +281,82 @@ func main() {
 			})
 		}
 
+		// Build dependency-grouped data (alternative grouping view). Containers
+		// are grouped under the container(s) they depend on, using the
+		// com.docker.compose.depends_on label. The group key is the dependency
+		// container's display name (Name if set, else ContainerName). Containers
+		// with no resolvable dependency go under "Standalone".
+		//
+		// Dependencies are resolved within the same compose project: a
+		// depends_on service name is only meaningful relative to the project
+		// that declared it, so the lookup key is "<project>/<service>".
+		dependencyGrouped = make(map[string][]containerCard)
+		serviceToCard := make(map[string]containerCard)
+		for _, card := range allContainers {
+			if card.ServiceName != "" {
+				serviceToCard[card.ComposeProject+"/"+card.ServiceName] = card
+			}
+		}
+		for _, card := range allContainers {
+			if len(card.DependsOn) == 0 {
+				dependencyGrouped["Standalone"] = append(dependencyGrouped["Standalone"], card)
+				continue
+			}
+			resolved := false
+			for _, dep := range card.DependsOn {
+				depCard, ok := serviceToCard[card.ComposeProject+"/"+dep]
+				if !ok {
+					continue
+				}
+				resolved = true
+				key := depCard.Name
+				if key == "" {
+					key = depCard.ContainerName
+				}
+				dependencyGrouped[key] = append(dependencyGrouped[key], card)
+			}
+			if !resolved {
+				dependencyGrouped["Standalone"] = append(dependencyGrouped["Standalone"], card)
+			}
+		}
+		dependencyProjects = make([]string, 0, len(dependencyGrouped))
+		for g := range dependencyGrouped {
+			dependencyProjects = append(dependencyProjects, g)
+		}
+		sort.Strings(dependencyProjects)
+		// Sort cards within each dependency group by name.
+		for _, cards := range dependencyGrouped {
+			sort.Slice(cards, func(i, j int) bool {
+				return strings.ToLower(cards[i].Name) < strings.ToLower(cards[j].Name)
+			})
+		}
+
 		if alerts.enabled() {
 			alerts.checkNew(unlabeled)
 		}
 	}
 
+	refreshNetworking := func() {
+		containers, err := fetchContainers(client, true)
+		if err != nil {
+			log.Printf("error fetching containers for networking: %v", err)
+			return
+		}
+		networks, err := fetchNetworks(client)
+		if err != nil {
+			log.Printf("error fetching networks: %v", err)
+			return
+		}
+		networkingData = buildNetworkingData(containers, networks)
+	}
+
 	refresh()
+	refreshNetworking()
 
 	go func() {
 		for range time.NewTicker(pollInterval).C {
 			refresh()
+			refreshNetworking()
 		}
 	}()
 
@@ -299,8 +374,17 @@ func main() {
 
 			ComposeGrouped:  composeGrouped,
 			ComposeProjects: composeProjects,
+
+			DependencyGrouped:  dependencyGrouped,
+			DependencyProjects: dependencyProjects,
 		}
 		json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("GET /api/networking", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		json.NewEncoder(w).Encode(networkingData)
 	})
 
 	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
