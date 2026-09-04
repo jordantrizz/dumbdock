@@ -217,6 +217,46 @@ ensure_env_file() {
     fi
 }
 
+# Is TCP port $1 free on 127.0.0.1? Returns 0 when free, 1 when taken.
+port_free() {
+    local port="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(0 if s.connect_ex(('127.0.0.1', int(sys.argv[1]))) != 0 else 1)" "$port" 2>/dev/null
+    else
+        (echo > "/dev/tcp/127.0.0.1/${port}") 2>/dev/null && return 1 || return 0
+    fi
+}
+
+# Dumbdock-only: if DUMBDOCK_PORT is taken by another process, bump it until
+# a free port is found (bounded) and write the result back to .env, so
+# `setup` never dies with "bind: address already in use". Skipped when our
+# own stack is already running (recreate rebinds the same port fine).
+ensure_free_dumbdock_port() {
+    has_key DUMBDOCK_PORT || return 0
+    local old port tries=0
+    old="$(get_env DUMBDOCK_PORT)"
+    port="$old"
+    [ -n "$port" ] || port=8080
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        warn "DUMBDOCK_PORT='${port}' is not numeric — leaving as-is."
+        return 0
+    fi
+    if docker compose ps "$MAIN_SERVICE" 2>/dev/null | grep -q "Up"; then
+        return 0
+    fi
+    while ! port_free "$port"; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 100 ]; then
+            die "No free port found starting from ${port} (tried 100 ports)."
+        fi
+        port=$((port + 1))
+    done
+    if [ "$port" != "$old" ]; then
+        set_env DUMBDOCK_PORT "$port"
+        log "Port ${old} is already in use — using DUMBDOCK_PORT=${port} instead."
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # -- Stack helpers ----------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -322,6 +362,7 @@ cmd_setup() {
     require_docker
     ensure_compose_file
     detect_main_service
+    ensure_free_dumbdock_port
     docker compose config --quiet || die "docker compose config failed — check your compose files."
     docker compose up -d
     wait_ready
