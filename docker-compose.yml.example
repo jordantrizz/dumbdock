@@ -4,19 +4,26 @@ services:
     container_name: dumbdock
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${DUMBDOCK_PORT:-8080}:8080"
     environment:
-      - POLL_INTERVAL=10s
+      - POLL_INTERVAL=${POLL_INTERVAL:-10s}
+      - DUMBDOCK_PORT=${DUMBDOCK_PORT:-8080}
+      # Auth mode: none (open) | http-auth (HTTP Basic) | web-auth (login form + session cookie).
+      # Unset with DUMBDOCK_PASSWORD set behaves as http-auth. A mode without a
+      # password disables auth with a warning. See README "Authentication".
+      - DUMBDOCK_AUTH_MODE=${DUMBDOCK_AUTH_MODE:-none}
+      - DUMBDOCK_PASSWORD=${DUMBDOCK_PASSWORD:-} # enables auth for the http-auth/web-auth modes
       # - AUTO_DETECTION=true                            # enable/disable auto-detection
       # - AUTODETECT_GROUP_NAME=Auto Detected            # name for the auto-detected group
       # - AUTO_DETECTION_SERVICE_BLACKLIST=server,db,app # skip service-name-based icon matching for generic names
       # - CONTAINER_BLACKLIST=dumbdock,traefik           # hide specific containers from the dashboard
+      # - DUMBDOCK_UPDATE_CHECK=true                    # check registries for newer image tags (default: true)
+      # - DUMBDOCK_UPDATE_INTERVAL=6h                   # how often each image tag is re-checked
       # - DUMBDOCK_URL=https://dumbdock.example.com      # public URL for alert links
       # - NTFY_TOPIC=mytopic                             # ntfy alert notifications
       # - GOTIFY_URL=https://gotify.example.com          # Gotify alert server
       # - GOTIFY_TOKEN=your-token                        # Gotify app token
       # - ALERT_COOLDOWN=5m                              # min time between alerts
-      # - DUMBDOCK_PASSWORD=changeme                     # enables Basic Auth on the dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # - ./dumbdock.json:/config/dumbdock.json:ro     # override config (supports iconSets)

@@ -13,11 +13,18 @@ type dockerContainer struct {
 	ID      string            `json:"Id"`
 	Names   []string          `json:"Names"`
 	Image   string            `json:"Image"`
+	ImageID string            `json:"ImageID"`
 	State   string            `json:"State"`
 	Status  string            `json:"Status"`
 	Ports   []dockerPort      `json:"Ports"`
 	Labels  map[string]string `json:"Labels"`
 	Created int64             `json:"Created"`
+}
+
+type dockerImage struct {
+	ID          string   `json:"Id"`
+	RepoTags    []string `json:"RepoTags"`
+	RepoDigests []string `json:"RepoDigests"`
 }
 
 type dockerPort struct {
@@ -59,6 +66,24 @@ func fetchContainers(client *http.Client, all bool) ([]dockerContainer, error) {
 		return nil, fmt.Errorf("decode containers: %w", err)
 	}
 	return containers, nil
+}
+
+func fetchImages(client *http.Client) ([]dockerImage, error) {
+	resp, err := client.Get("http://localhost/v1.45/images/json")
+	if err != nil {
+		return nil, fmt.Errorf("fetch images: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("docker API returned status %d", resp.StatusCode)
+	}
+
+	var images []dockerImage
+	if err := json.NewDecoder(resp.Body).Decode(&images); err != nil {
+		return nil, fmt.Errorf("decode images: %w", err)
+	}
+	return images, nil
 }
 
 func formatPorts(ports []dockerPort) string {

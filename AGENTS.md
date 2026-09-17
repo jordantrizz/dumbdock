@@ -40,6 +40,10 @@ No CSP, X-Content-Type-Options, or X-Frame-Options on responses.
 
 ### Future: Authentication
 No auth on dashboard — rely on reverse proxy or add Basic/Bearer auth.
+Implemented 2026-09-04 (`DUMBDOCK_AUTH_MODE`: `none` / `http-auth` / `web-auth`; see README "Authentication"):
+session cookie `dumbdock_session` uses `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Secure` flag (terminate TLS in proxy);
+sessions in-memory (8h, 30d remember-me, hourly purge); password compare is constant-time (SHA-256 + `crypto/subtle`).
+No new findings.
 
 ## README.md
 
@@ -55,3 +59,21 @@ No auth on dashboard — rely on reverse proxy or add Basic/Bearer auth.
   - `GET /api/version` endpoint returning `{"version":"<semver>","build":"<sha>"}`
   - Dashboard UI footer showing `v<semver> (build <sha>)`
   - Startup log line: `dumbdock v<semver> (build <sha>)`
+
+## Image Update Checks
+
+Implemented 2026-09-17 (`updates.go`, `updates_test.go`; see README "Image Update Checks"):
+
+* The checker is the only component that makes **outbound** network calls to third parties
+  (Docker Hub + GHCR registry APIs). Keep it off the request path: registry I/O runs in its own
+  goroutine and `refresh()` only reads the TTL cache.
+* Supported registries are Docker Hub (`registry-1.docker.io`) and GHCR (`ghcr.io`), anonymous
+  only. Never send credentials, and never log registry tokens. Other registries / local-only
+  images are reported as `unknown`, not errors.
+* Follow the existing security rules for fetches: HTTP client timeouts, `io.LimitReader` on
+  response bodies (see H-04), and bounded concurrency (`updateMaxConcurrency`).
+* Toggle with `DUMBDOCK_UPDATE_CHECK` (default `true`) / config `updateCheck`; cache TTL via
+  `DUMBDOCK_UPDATE_INTERVAL` (default `6h`). Failed checks retry after 15 minutes.
+* `parseImageRef` in `updates.go` is the canonical image-reference normalizer for this feature;
+  `imagePath` in `icons.go` remains the icon-specific parser.
+* No new Go module dependencies: the registry client is stdlib-only (`net/http`, `encoding/json`).

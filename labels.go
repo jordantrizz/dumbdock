@@ -46,6 +46,12 @@ type containerCard struct {
 	LocalBindingIPs   []string `json:"localBindingIPs,omitempty"`
 	TraefikEnabled    bool     `json:"traefikEnabled"`
 	TraefikURLs       []string `json:"traefikURLs,omitempty"`
+
+	// Image update check
+	UpdateStatus    string `json:"updateStatus,omitempty"`
+	UpdateAvailable bool   `json:"updateAvailable,omitempty"`
+	CurrentDigest   string `json:"currentDigest,omitempty"`
+	LatestDigest    string `json:"latestDigest,omitempty"`
 }
 
 func parseLabels(labels map[string]string) containerCard {

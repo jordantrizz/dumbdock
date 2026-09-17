@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 type cardOverride struct {
@@ -24,6 +25,7 @@ type overrideConfig struct {
 	Containers                 map[string]cardOverride  `json:"containers"`
 	IconSets                   []IconSetConfig         `json:"iconSets,omitempty"`
 	TraefikAPIToken            string                  `json:"traefikAPIToken,omitempty"`
+	UpdateCheck                *bool                   `json:"updateCheck,omitempty"`
 }
 
 func loadConfig(path string) (*overrideConfig, error) {
@@ -178,6 +180,35 @@ func isInBlacklist(name string, blacklist []string) bool {
 		}
 	}
 	return false
+}
+
+// updateCheckEnabled reports whether the background registry update checks are
+// enabled. Checks the DUMBDOCK_UPDATE_CHECK env var first (accepting
+// "false"/"0"/"no"/"off" as false and "true"/"1"/"yes"/"on" as true), then
+// falls back to the config file value, then defaults to true.
+func updateCheckEnabled(cfg *overrideConfig) bool {
+	switch env := strings.ToLower(strings.TrimSpace(os.Getenv("DUMBDOCK_UPDATE_CHECK"))); env {
+	case "false", "0", "no", "off":
+		return false
+	case "true", "1", "yes", "on":
+		return true
+	}
+	if cfg != nil && cfg.UpdateCheck != nil {
+		return *cfg.UpdateCheck
+	}
+	return true
+}
+
+// updateCheckInterval returns how long a successful update check is cached
+// before the image is re-checked. Checks the DUMBDOCK_UPDATE_INTERVAL env var
+// first, then defaults to 6h. Invalid or non-positive values fall back to 6h.
+func updateCheckInterval(cfg *overrideConfig) time.Duration {
+	if env := strings.TrimSpace(os.Getenv("DUMBDOCK_UPDATE_INTERVAL")); env != "" {
+		if d, err := time.ParseDuration(env); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 6 * time.Hour
 }
 
 

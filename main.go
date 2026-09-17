@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	_ "embed"
 	"encoding/json"
@@ -55,9 +56,18 @@ func main() {
 		socketPath = "/var/run/docker.sock"
 	}
 
+	// Precedence: LISTEN_ADDR wins when set; otherwise DUMBDOCK_PORT
+	// supplies the port; otherwise fall back to :8080.
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
-		listenAddr = ":8080"
+		if port := os.Getenv("DUMBDOCK_PORT"); port != "" {
+			if !strings.HasPrefix(port, ":") {
+				port = ":" + port
+			}
+			listenAddr = port
+		} else {
+			listenAddr = ":8080"
+		}
 	}
 
 	pollInterval := 10 * time.Second
@@ -68,6 +78,16 @@ func main() {
 	}
 
 	authPassword := os.Getenv("DUMBDOCK_PASSWORD")
+
+	// Auth mode selection. Unset mode with a password keeps the historical
+	// behavior (HTTP Basic auth); unknown values warn and disable auth.
+	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("DUMBDOCK_AUTH_MODE")))
+	if authMode == "" && authPassword != "" {
+		authMode = "http-auth"
+	}
+
+	// Session store for web-auth mode; initialized in the auth dispatch below.
+	var webSessions *sessionStore
 
 	cfg, err := loadConfig(configPath())
 	if err != nil {
@@ -81,6 +101,15 @@ func main() {
 	alerts := newAlertManager()
 
 	client := newDockerClient(socketPath)
+	var updater *updateChecker
+	if updateCheckEnabled(cfg) {
+		updateInterval := updateCheckInterval(cfg)
+		updater = newUpdateChecker(client, updateInterval, appVersion)
+		go updater.run(context.Background())
+		log.Printf("image update checks enabled (re-check interval %s)", updateInterval)
+	} else {
+		log.Println("image update checks disabled")
+	}
 	var cards []containerCard
 	var unlabeled []containerCard
 	var groups []string
@@ -331,6 +360,43 @@ func main() {
 			})
 		}
 
+		// Overlay cached image-update results. Registry I/O happens in the
+		// checker's own goroutine; this only reads the cache.
+		if updater != nil {
+			applyUpdate := func(c containerCard) containerCard {
+				info := updater.info(c.Image)
+				c.UpdateStatus = info.Status
+				c.UpdateAvailable = info.Available
+				c.CurrentDigest = info.CurrentDigest
+				c.LatestDigest = info.LatestDigest
+				return c
+			}
+			for i := range cards {
+				cards[i] = applyUpdate(cards[i])
+			}
+			for i := range unlabeled {
+				unlabeled[i] = applyUpdate(unlabeled[i])
+			}
+			for g, list := range grouped {
+				for i := range list {
+					list[i] = applyUpdate(list[i])
+				}
+				grouped[g] = list
+			}
+			for g, list := range composeGrouped {
+				for i := range list {
+					list[i] = applyUpdate(list[i])
+				}
+				composeGrouped[g] = list
+			}
+			for g, list := range dependencyGrouped {
+				for i := range list {
+					list[i] = applyUpdate(list[i])
+				}
+				dependencyGrouped[g] = list
+			}
+		}
+
 		if alerts.enabled() {
 			alerts.checkNew(unlabeled)
 		}
@@ -414,6 +480,34 @@ func main() {
 		})
 	})
 
+	// Public auth status for the login UI: which mode is active and whether
+	// this request is already authenticated. Stays unprotected in every mode
+	// (it reveals no secrets) so the frontend can decide when to show the
+	// login overlay and logout button.
+	mux.HandleFunc("GET /api/auth", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		mode := authMode
+		if mode == "" {
+			mode = "none"
+		}
+		authed := true
+		switch authMode {
+		case "http-auth":
+			_, pass, ok := r.BasicAuth()
+			authed = ok && authPassword != "" && subtle.ConstantTimeCompare([]byte(pass), []byte(authPassword)) == 1
+		case "web-auth":
+			authed = false
+			if c, err := r.Cookie(sessionCookieName); err == nil && webSessions != nil {
+				authed = webSessions.valid(c.Value)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"mode":          mode,
+			"authenticated": authed,
+		})
+	})
+
 	mux.HandleFunc("GET /dumbdock.svg", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -437,9 +531,30 @@ func main() {
 	log.Printf("listening on %s (socket: %s, poll: %s)", listenAddr, socketPath, pollInterval)
 
 	var handler http.Handler = mux
-	if authPassword != "" {
-		log.Println("Basic auth enabled")
-		handler = basicAuth(mux, authPassword)
+	switch authMode {
+	case "", "none":
+		// No auth.
+	case "http-auth":
+		if authPassword == "" {
+			log.Println("warning: DUMBDOCK_AUTH_MODE=http-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
+		} else {
+			log.Println("Basic auth enabled")
+			handler = basicAuth(mux, authPassword)
+		}
+	case "web-auth":
+		if authPassword == "" {
+			log.Println("warning: DUMBDOCK_AUTH_MODE=web-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
+		} else {
+			sessions := newSessionStore()
+			webSessions = sessions
+			go sessions.cleanupLoop(time.Hour)
+			mux.HandleFunc("POST /api/login", sessions.loginHandler(authPassword))
+			mux.HandleFunc("POST /api/logout", sessions.logoutHandler())
+			log.Println("Web auth enabled")
+			handler = sessions.middleware(mux)
+		}
+	default:
+		log.Printf("warning: unknown DUMBDOCK_AUTH_MODE %q; auth disabled", authMode)
 	}
 	log.Fatal(http.ListenAndServe(listenAddr, handler))
 }
