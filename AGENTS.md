@@ -173,10 +173,35 @@ Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
 
 * The **Help** tab is always visible, immediately after Traefik. It is pure static markup in
   `#page-help`/`#help-app` — no `loadHelp()` fetch, no `setInterval` refresh, and no backend route.
-  `switchTab('help')` only toggles visibility; keep it that way.
+  `setActiveTab('help')` only toggles visibility + nav highlight; `switchTab('help')` additionally
+  syncs the URL fragment (see "Tab Persistence" below). Keep the no-fetch rule.
 * Add future guides by appending a `.traefik-section` block inside `#page-help` and an entry in the
   guide table of contents (`.help-toc`). Reuse the existing `traefik-*`/`help-*` classes.
 * Help content is authored as static HTML only — never interpolate user/container data into it
   (no XSS surface, per H-02).
+
+## Tab Persistence
+
+Implemented 2026-09-23 (`index.html`; see README "Tab Persistence"):
+
+* The active tab is stored in the URL fragment as a bare `#<tab>` id (`dashboard`, `networking`,
+  `icons`, `traefik`, `help`). Clicking a tab pushes a history entry (`location.hash = tab`), so
+  refresh (Ctrl+R), bookmarks, and back/forward all restore the tab.
+* `tabFromHash(hash, doc)` resolves a fragment: a known tab id maps directly; any other fragment
+  maps to the tab whose `page-*` element contains the matching element id (this is how the in-page
+  `#help-traefik-api` / `#help-traefik-verify` anchors keep working); anything else falls back to
+  `dashboard`. The fragment is only used for element lookups — **never interpolate it into the
+  DOM** (H-02).
+* `setActiveTab(tab)` only toggles `page-*` visibility and the `nav-<tab>` highlight (and sets
+  `currentTab`); `switchTab(tab)` calls it, then `refreshActiveTab()`, then syncs `location.hash`.
+  Keep the split: the initial load calls `setActiveTab(tabFromHash(location.hash))` for visibility
+  only, and the active tab's data is fetched by `refreshActiveTab()` after `checkAuth()` resolves,
+  so no request is made before auth.
+* The `hashchange` listener returns early when the resolved tab already equals `currentTab`, so
+  `switchTab`'s own hash assignment does not double-load. The 10s `setInterval` refresh is
+  unchanged (it keys off the `page-*` display state).
+* Nav buttons must keep their `id="nav-<tab>"` (the code selects by id, not position — this also
+  fixed the old Icons→Networking highlight bug). Update both README "Tab Persistence" and this
+  note when adding or renaming a tab.
 
 

@@ -26,6 +26,7 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
 - **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
 - **Help tab** — an always-visible **Help** tab (after Traefik) with static getting-started guides. The first guide, **Configure Traefik API Access**, walks through enabling Traefik's read-only API (insecure entrypoint or secured `api@internal`), configuring auth for dumbdock, verifying with `curl /api/version`, and troubleshooting the errors the Traefik tab surfaces. See [Help Tab](#help-tab).
+- **Persistent tabs** — the selected tab is kept in the URL fragment (`#networking`, `#traefik`, …), so a browser refresh (Ctrl+R) leaves you on the same tab, and any tab can be bookmarked or shared. See [Tab Persistence](#tab-persistence).
 - **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `alpine:3.20` (a minimal image with `wget`, used by the container healthcheck).
 - **Container healthcheck** — the Compose stack ships a `healthcheck` that confirms the app is listening on its port (a TCP connect, no HTTP route or auth involved), so `docker compose ps` / `docker inspect` report the container as `healthy`. See [Container Healthcheck](#container-healthcheck).
 - **Cache-aware HTTP headers** — serves the dashboard HTML with `ETag` and `Cache-Control: no-cache` headers, and API responses with `Cache-Control: no-cache`. The ETag is derived from a build-time version string (Git SHA + timestamp) injected via ldflags, enabling browsers to revalidate efficiently with `304 Not Modified`. Version defaults to `"dev"` for local builds; Docker builds automatically get a version tag.
@@ -323,6 +324,22 @@ The first guide is **Configure Traefik API Access**, which covers:
 - **Troubleshooting**: the `connection refused` signature, the Traefik tab's "container detected but API is not accessible" banner, wrong-URL fixes, 401/403 auth failures, and normal partial-data cases.
 
 To add a future guide, append a new `.traefik-section` block inside `#page-help` in `index.html` and add an entry to the guide table of contents — no JavaScript or API changes are required.
+
+## Tab Persistence
+
+The active tab is reflected in the URL fragment, so a **refresh (Ctrl+R) keeps you on the same tab** instead of returning to the Dashboard:
+
+| Tab | URL |
+|-----|-----|
+| Dashboard | `/#dashboard` |
+| Networking | `/#networking` |
+| Icons | `/#icons` |
+| Traefik | `/#traefik` |
+| Help | `/#help` |
+
+Clicking a tab updates the fragment, which makes each tab **bookmarkable/shareable** and lets the browser **back/forward buttons** move between visited tabs. On load, the tab named by the fragment is restored immediately (its data is fetched after the auth check resolves, so no requests are made before login).
+
+The existing in-page Help anchors (`#help-traefik-api`, `#help-traefik-verify`) still work: an unrecognized fragment resolves to the tab that contains the matching element, and dumbdock scrolls to it once that tab is visible. Any other unrecognized fragment falls back to the Dashboard.
 
 ## Alerts
 
