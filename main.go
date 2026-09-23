@@ -79,20 +79,36 @@ func main() {
 
 	authPassword := os.Getenv("DUMBDOCK_PASSWORD")
 
-	// Auth mode selection. Unset mode with a password keeps the historical
-	// behavior (HTTP Basic auth); unknown values warn and disable auth.
-	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("DUMBDOCK_AUTH_MODE")))
-	if authMode == "" && authPassword != "" {
-		authMode = "http-auth"
+	cfg, err := loadConfig(configPath())
+	if err != nil {
+		log.Printf("warning: config load: %v", err)
+		// Never let a missing or unparseable config crash the server:
+		// downstream code dereferences cfg directly (see AGENTS.md H-03).
+		cfg = &overrideConfig{Containers: map[string]cardOverride{}}
+	}
+
+	// Auth mode selection. The env var wins over the config file value; when
+	// neither is set the mode defaults to web-auth. Unknown values warn and
+	// disable auth.
+	authMode := resolveAuthMode(cfg)
+
+	// An active auth mode with no configured password cannot be enforced, so
+	// generate a random password for this run and log it once. It is in-memory
+	// only and rotates on every restart.
+	if (authMode == "http-auth" || authMode == "web-auth") && authPassword == "" {
+		authPassword = generateAuthPassword()
+		log.Printf("warning: DUMBDOCK_PASSWORD is empty; generated password for this run: %s", authPassword)
+	}
+
+	// Validate the effective configuration. Validation is advisory: every
+	// invalid setting is logged as a warning and the process continues with
+	// defaults.
+	for _, w := range validateConfig(cfg, err, authMode) {
+		log.Printf("warning: config: %s: %s", w.Field, w.Message)
 	}
 
 	// Session store for web-auth mode; initialized in the auth dispatch below.
 	var webSessions *sessionStore
-
-	cfg, err := loadConfig(configPath())
-	if err != nil {
-		log.Printf("warning: config load: %v", err)
-	}
 
 	// Initialize icon sets (fetches indexes from configured providers).
 	iconHTTPClient := &http.Client{Timeout: 15 * time.Second}
@@ -528,34 +544,59 @@ func main() {
 	})
 
 	log.Printf("dumbdock v%s (build %s)", appVersion, buildNumber)
-	log.Printf("listening on %s (socket: %s, poll: %s)", listenAddr, socketPath, pollInterval)
 
 	var handler http.Handler = mux
 	switch authMode {
-	case "", "none":
+	case "none":
 		// No auth.
 	case "http-auth":
-		if authPassword == "" {
-			log.Println("warning: DUMBDOCK_AUTH_MODE=http-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
-		} else {
-			log.Println("Basic auth enabled")
-			handler = basicAuth(mux, authPassword)
-		}
+		log.Println("Basic auth enabled")
+		handler = basicAuth(mux, authPassword)
 	case "web-auth":
-		if authPassword == "" {
-			log.Println("warning: DUMBDOCK_AUTH_MODE=web-auth but DUMBDOCK_PASSWORD is empty; auth disabled")
-		} else {
-			sessions := newSessionStore()
-			webSessions = sessions
-			go sessions.cleanupLoop(time.Hour)
-			mux.HandleFunc("POST /api/login", sessions.loginHandler(authPassword))
-			mux.HandleFunc("POST /api/logout", sessions.logoutHandler())
-			log.Println("Web auth enabled")
-			handler = sessions.middleware(mux)
-		}
+		sessions := newSessionStore()
+		webSessions = sessions
+		go sessions.cleanupLoop(time.Hour)
+		mux.HandleFunc("POST /api/login", sessions.loginHandler(authPassword))
+		mux.HandleFunc("POST /api/logout", sessions.logoutHandler())
+		log.Println("Web auth enabled")
+		handler = sessions.middleware(mux)
 	default:
-		log.Printf("warning: unknown DUMBDOCK_AUTH_MODE %q; auth disabled", authMode)
+		// Unknown modes are reported by validateConfig; auth stays disabled.
 	}
+
+	configStatus := "loaded"
+	if _, statErr := os.Stat(configPath()); statErr != nil {
+		configStatus = "not found (using defaults)"
+	}
+	if err != nil {
+		configStatus = "invalid: " + err.Error()
+	}
+	logStartupConfig(startupConfig{
+		ConfigPath:         configPath(),
+		ConfigStatus:       configStatus,
+		ListenAddr:         listenAddr,
+		SocketPath:         socketPath,
+		PollInterval:       pollInterval,
+		AuthMode:           authMode,
+		Password:           authPassword,
+		UpdateCheck:        updateCheckEnabled(cfg),
+		UpdateInterval:     updateCheckInterval(cfg),
+		AutoDetection:      isAutoDetectionEnabled(cfg),
+		AutoDetectedGroup:  autoDetectedGroupName(cfg),
+		ServiceBlacklist:   autoDetectionServiceBlacklist(cfg),
+		ContainerBlacklist: containerBlacklist(cfg),
+		IconSetNames:       iconSetNames(),
+		DashboardURL:       alerts.cfg.ContainerURL,
+		NtfyTopic:          alerts.cfg.NtfyTopic,
+		GotifyURL:          alerts.cfg.GotifyURL,
+		GotifyToken:        alerts.cfg.GotifyToken,
+		AlertCooldown:      alerts.cfg.Cooldown,
+		TraefikAPIURL:      os.Getenv("TRAEFIK_API_URL"),
+		TraefikAPIToken:    os.Getenv("TRAEFIK_API_TOKEN"),
+		TraefikAPIUser:     os.Getenv("TRAEFIK_API_USER"),
+		TraefikAPIPass:     os.Getenv("TRAEFIK_API_PASS"),
+	})
+
 	log.Fatal(http.ListenAndServe(listenAddr, handler))
 }
 

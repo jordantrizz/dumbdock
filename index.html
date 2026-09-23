@@ -74,6 +74,22 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .legend-icon.legend-local{color:#3fb950}
 .legend-icon.legend-traefik{color:#58a6ff}
 
+/* Dashboard scoreboard */
+.dash-stats{display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:1rem}
+.dash-stat-card{flex:1 1 150px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.7rem 1rem;text-align:center;cursor:pointer;transition:all 0.15s;font:inherit;color:inherit}
+.dash-stat-card:hover{background:#1c2128;border-color:#8b949e}
+.dash-stat-card.active{border-color:#58a6ff;box-shadow:inset 0 0 0 1px #58a6ff}
+.dash-stat-card .stat-count{font-size:1.5rem;font-weight:700;color:#f0f2f5;line-height:1.2}
+.dash-stat-card .stat-label{font-size:0.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.15rem}
+.dash-stat-card .stat-sub{font-size:0.7rem;color:#8b949e;margin-top:0.2rem}
+.dash-stat-card.dash-updates .stat-count{color:#f0883e}
+.dash-stat-card.dash-private .stat-count{color:#d29922}
+.dash-stat-card.dash-local .stat-count{color:#3fb950}
+.dash-stat-card.dash-traefik .stat-count{color:#58a6ff}
+.dash-stat-card.dash-zero .stat-count{color:#6e7681}
+.filter-clear{margin-left:0.75rem;padding:0.25rem 0.6rem;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:0.75rem;text-transform:none;letter-spacing:normal}
+.filter-clear:hover{color:#f0f2f5;background:#21262d}
+
 /* Nav */
 .nav-bar{display:flex;align-items:center;gap:1.5rem;margin-bottom:1.5rem;padding:0.75rem 1rem;background:#161b22;border:1px solid #30363d;border-radius:8px}
 .nav-title{font-size:1.2rem;font-weight:700;color:#f0f2f5;text-decoration:none}
@@ -224,6 +240,17 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 
 .traefik-server-list{display:flex;flex-direction:column;gap:0.2rem}
 .traefik-server-list .server-item{font-size:0.8rem;font-family:monospace;word-break:break-all}
+
+.help-intro{color:#8b949e;font-size:0.9rem;line-height:1.6;margin:0 0 1.25rem;max-width:80ch}
+.help-step{color:#8b949e;font-size:0.85rem;line-height:1.55;margin:0 0 0.6rem}
+.help-list{color:#8b949e;font-size:0.85rem;line-height:1.7;margin:0 0 0.75rem;padding-left:1.25rem}
+.help-list code,.help-step code{background:#1a2332;border-radius:3px;padding:1px 4px;font-family:monospace;font-size:0.8rem;color:#d29922}
+.help-guide h3{font-size:1rem;color:#f0f2f5;margin:0 0 0.5rem}
+.help-toc{list-style:none;margin:0 0 1.25rem;padding:0}
+.help-toc li{margin:0 0 0.3rem}
+.help-toc a{color:#58a6ff;text-decoration:none;font-size:0.9rem}
+.help-toc a:hover{text-decoration:underline}
+.help-anchor{scroll-margin-top:1rem}
 </style>
 </head>
 <body>
@@ -234,6 +261,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
     <button class="nav-tab" onclick="switchTab('networking')">Networking</button>
     <button class="nav-tab" onclick="switchTab('icons')">Icons</button>
     <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
+    <button class="nav-tab" id="nav-help" onclick="switchTab('help')">Help</button>
   </div>
   <span class="nav-separator"></span>
   <button class="nav-tab group-toggle" id="group-toggle-btn" onclick="toggleGroupView()" title="Switch between group, compose project, and dependency views">By Compose</button>
@@ -242,6 +270,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 </div>
 
 <div id="page-dashboard">
+<div id="scoreboard" class="dash-stats"></div>
 <div class="legend">
   <span class="legend-item"><span class="legend-icon legend-public">&#9650;</span> Public port binding</span>
   <span class="legend-item"><span class="legend-icon legend-private">&#9679;</span> Private port binding</span>
@@ -274,6 +303,123 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 <div id="page-traefik" style="display:none">
   <div id="traefik-app">
     <div class="loading">Loading Traefik status...</div>
+  </div>
+</div>
+
+<div id="page-help" style="display:none">
+  <div id="help-app">
+    <div class="traefik-section help-guide">
+      <h2>Help</h2>
+      <p class="help-intro">Guides for getting the most out of dumbdock. Pick a topic below.</p>
+      <ul class="help-toc">
+        <li><a href="#help-traefik-api">Configure Traefik API Access</a></li>
+      </ul>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-traefik-api">
+      <h2>Configure Traefik API Access</h2>
+      <p class="help-intro">The dumbdock <strong>Traefik</strong> tab reads Traefik's read-only API to show routers, services, middlewares, entrypoints, and TLS certificates. Traefik does not expose this API by default, so dumbdock may log <code>connection refused</code> errors until it is enabled. This guide covers both ways to enable it, how to verify it works, and how to troubleshoot failures.</p>
+
+      <div class="traefik-info-banner">
+        <span class="err-icon">&#8505;</span>
+        <div class="err-body">
+          <div class="err-title">Which option should I use?</div>
+          <div class="err-detail">Use <strong>Option 1 (insecure API)</strong> only when Traefik is reachable on a trusted network (for example, a private Docker network or localhost). Use <strong>Option 2 (secured API)</strong> when Traefik's dashboard/API could be exposed beyond your host — it requires auth and is the recommended choice for anything public.</div>
+        </div>
+      </div>
+
+      <h3>How dumbdock finds the API</h3>
+      <p class="help-step">dumbdock resolves the Traefik API URL with this fallback chain:</p>
+      <ol class="help-list">
+        <li>The <code>dumbdock.traefik.api</code> label on the Traefik container (used as-is).</li>
+        <li>The <code>TRAEFIK_API_URL</code> environment variable set on the <em>dumbdock</em> container.</li>
+        <li>The Traefik container's Docker network IP with port <code>8080</code> (or the port from <code>--entrypoints.traefik.address=:PORT</code>).</li>
+        <li>The first published TCP port on <code>127.0.0.1</code> (preferring <code>8080</code>).</li>
+      </ol>
+      <p class="help-step">If every endpoint fails at the resolved URL, dumbdock probes fallbacks in order — the published <code>8080/tcp</code> port, the container IP on <code>8081</code>, then any other published TCP port — and uses the first one that answers <code>/api/version</code>.</p>
+
+      <h3>Option 1 — Insecure API (quick start)</h3>
+      <p class="help-step">Start Traefik with <code>--api.insecure=true</code>. This serves the dashboard and API on the <code>traefik</code> entrypoint (default port <code>8080</code>).</p>
+      <code class="traefik-code">docker run -d --name traefik \
+  -p 80:80 -p 8080:8080 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  traefik:v3 --api.insecure=true --providers.docker</code>
+      <p class="help-step">Compose equivalent:</p>
+      <code class="traefik-code">services:
+  traefik:
+    image: traefik:v3
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock</code>
+      <p class="help-step"><strong>Security note:</strong> <code>--api.insecure=true</code> has no authentication. Keep port <code>8080</code> on a private network (do not publish it to a public interface) and let dumbdock reach it over the Docker network.</p>
+      <p class="help-step"><strong>No port publishing needed:</strong> you do <em>not</em> have to expose <code>8080</code> to the host. If dumbdock shares a Docker network with Traefik, it reaches the API directly at the Traefik container's IP on port <code>8080</code> — omit the <code>-p 8080:8080</code> line (or the <code>8080:8080</code> entry under <code>ports</code>) entirely:</p>
+      <code class="traefik-code">docker run -d --name traefik \
+  -p 80:80 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  traefik:v3 --api.insecure=true --providers.docker</code>
+      <p class="help-step">With the port unpublished, <code>8080</code> is only reachable from inside the Docker network the Traefik container is attached to. Make sure the dumbdock container is on that same network (for example, join both to a shared user-defined network such as <code>traefik</code>).</p>
+
+      <h3>Test the API from the Traefik container</h3>
+      <p class="help-step">To confirm the API is listening <em>inside</em> the network without publishing the port, run a request from a shell in the Traefik container itself:</p>
+      <code class="traefik-code"># Traefik v3 (and v2.6+) ships no curl; use wget if curl is missing
+docker exec traefik wget -qO- http://127.0.0.1:8080/api/version</code>
+      <p class="help-step">If <code>curl</code> is available in your image, the equivalent is:</p>
+      <code class="traefik-code">docker exec traefik curl -s http://127.0.0.1:8080/api/version</code>
+      <p class="help-step">To test reachability across the network (the way dumbdock connects), run the request from the dumbdock container using the Traefik container's name instead of <code>127.0.0.1</code>:</p>
+      <code class="traefik-code">docker exec dumbdock wget -qO- http://traefik:8080/api/version</code>
+      <p class="help-step">A successful response is the same version JSON shown under <a href="#help-traefik-verify">Verify it works</a>. If <code>wget</code>/<code>curl</code> is not present in the image, install it in a throwaway container on the same network:</p>
+      <code class="traefik-code">docker run --rm --network traefik curlimages/curl -s http://traefik:8080/api/version</code>
+
+      <h3>Option 2 — Secured API (recommended for public exposure)</h3>
+      <p class="help-step">Expose the <code>api@internal</code> service through a router instead of the insecure entrypoint, optionally protecting it with auth middleware. Example dynamic configuration (Docker provider labels on the Traefik container):</p>
+      <code class="traefik-code">labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.api.rule=Host(`traefik.example.com`)"
+  - "traefik.http.routers.api.entrypoints=websecure"
+  - "traefik.http.routers.api.tls=true"
+  - "traefik.http.routers.api.service=api@internal"
+  - "traefik.http.routers.api.middlewares=api-auth"
+  # Basic auth (use `htpasswd -nb user pass` to generate the value)
+  - "traefik.http.middlewares.api-auth.basicauth.users=admin:$apr1$..."</code>
+      <p class="help-step">Then point dumbdock at it explicitly with the <code>TRAEFIK_API_URL</code> environment variable (this overrides auto-discovery):</p>
+      <code class="traefik-code">environment:
+  - TRAEFIK_API_URL=https://traefik.example.com</code>
+      <p class="help-step">Alternatively, label the Traefik container itself with <code>dumbdock.traefik.api</code> and dumbdock will use that URL as-is.</p>
+
+      <h3>Authentication for a secured API</h3>
+      <p class="help-step">If Traefik's API is protected, give dumbdock credentials (sent server-side only — they never reach the browser):</p>
+      <ul class="help-list">
+        <li><strong>Bearer token:</strong> set <code>TRAEFIK_API_TOKEN</code> on the dumbdock container, or <code>traefikAPIToken</code> in <code>dumbdock.json</code>.</li>
+        <li><strong>Basic auth:</strong> set <code>TRAEFIK_API_USER</code> and <code>TRAEFIK_API_PASS</code> on the dumbdock container.</li>
+      </ul>
+
+      <h3 class="help-anchor" id="help-traefik-verify">Verify it works</h3>
+      <p class="help-step">From the machine running dumbdock (use the same host/port dumbdock will use):</p>
+      <code class="traefik-code">curl -s http://<traefik-host>:8080/api/version</code>
+      <p class="help-step">A working API returns JSON like:</p>
+      <code class="traefik-code">{"Version":"3.x.x","Codename":"...","StartDate":"...","Goversion":"go1.x"}</code>
+      <p class="help-step">If you configured auth, add it to the request:</p>
+      <code class="traefik-code"># Bearer
+curl -s -H "Authorization: Bearer <token>" http://<traefik-host>:8080/api/version
+# Basic
+curl -s -u user:pass http://<traefik-host>:8080/api/version</code>
+      <p class="help-step">Then open the dumbdock <strong>Traefik</strong> tab — it should show the Traefik version, overview stats, and router/service tables.</p>
+
+      <h3>Troubleshooting</h3>
+      <ul class="help-list">
+        <li><strong>"Traefik container detected but API is not accessible"</strong> — the API host/port dumbdock resolved is not answering. Confirm <code>--api.insecure=true</code> or the <code>api@internal</code> router is enabled, and that the port is reachable from the dumbdock container.</li>
+        <li><strong>Logs show <code>connection refused</code></strong> on every endpoint — nothing is listening on the resolved URL, usually because the API is not enabled or is on a different port. dumbdock logs this once per state change and logs <code>traefik: API recovered</code> when it comes back.</li>
+        <li><strong>Wrong URL chosen</strong> — set <code>TRAEFIK_API_URL</code> (or the <code>dumbdock.traefik.api</code> label) to bypass auto-discovery entirely.</li>
+        <li><strong>401/403 responses</strong> — the API is up but requires auth. Set <code>TRAEFIK_API_TOKEN</code> or <code>TRAEFIK_API_USER</code>/<code>TRAEFIK_API_PASS</code>.</li>
+        <li><strong>Partial data</strong> — a few endpoints may 404 when a feature is unused (for example, no TLS certificates configured). This is normal; the tab shows a partial-data notice.</li>
+        <li><strong>"Unsupported Traefik version"</strong> — dumbdock requires <strong>Traefik v3</strong>. The Traefik tab shows this banner (and the server logs it once) when the detected major version is not 3. Upgrade Traefik to v3, then reload the tab.</li>
+      </ul>
+    </div>
   </div>
 </div>
 
@@ -322,8 +468,110 @@ async function load() {
   }
 }
 
+// ---- Dashboard scoreboard ----
+// Active scoreboard filter ('updates' | 'private' | 'local' | 'traefik') or null.
+let dashboardFilter = null;
+
+// Flatten the dashboard payload into a deduped list of every container, using
+// the labeled cards plus the remaining unlabeled ones.
+function collectContainers(data) {
+  const seen = new Set();
+  const out = [];
+  const lists = [data.cards || [], data.unlabeled || []];
+  for (const list of lists) {
+    for (const card of list) {
+      const key = card.containerId || card.containerName;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(card);
+    }
+  }
+  return out;
+}
+
+// Whether a container matches a scoreboard filter.
+function scoreboardMatches(card, filter) {
+  switch (filter) {
+    case 'updates': return card.updateAvailable === true;
+    case 'private': return card.hasPrivateBinding === true;
+    case 'local': return card.hasLocalBinding === true;
+    case 'traefik': return card.traefikEnabled === true;
+  }
+  return false;
+}
+
+function scoreboardTile(filter, label, count, sub) {
+  const active = dashboardFilter === filter ? ' active' : '';
+  const zero = count === 0 ? ' dash-zero' : '';
+  return '<button type="button" class="dash-stat-card dash-' + filter + zero + active + '" ' +
+    'onclick="setDashboardFilter(\'' + filter + '\')" title="Filter: ' + escapeHtml(label) + '">' +
+    '<div class="stat-count">' + count + '</div>' +
+    '<div class="stat-label">' + escapeHtml(label) + '</div>' +
+    (sub ? '<div class="stat-sub">' + escapeHtml(sub) + '</div>' : '') +
+    '</button>';
+}
+
+// Count containers matching each scoreboard condition and render the tiles.
+function renderScoreboard(data) {
+  const el = document.getElementById('scoreboard');
+  if (!el) return;
+  const all = collectContainers(data);
+  const counts = { updates: 0, unknown: 0, private: 0, local: 0, traefik: 0 };
+  for (const c of all) {
+    if (c.updateAvailable) counts.updates++;
+    if (c.updateStatus === 'unknown') counts.unknown++;
+    if (c.hasPrivateBinding) counts.private++;
+    if (c.hasLocalBinding) counts.local++;
+    if (c.traefikEnabled) counts.traefik++;
+  }
+  el.innerHTML =
+    scoreboardTile('updates', 'Updates', counts.updates, counts.unknown ? counts.unknown + ' unknown' : '') +
+    scoreboardTile('private', 'Private Port Binding', counts.private, '') +
+    scoreboardTile('local', 'Localhost Port Binding', counts.local, '') +
+    scoreboardTile('traefik', 'Traefik Enabled', counts.traefik, '');
+}
+
+// Toggle a scoreboard filter on/off and re-render the dashboard.
+function setDashboardFilter(filter) {
+  dashboardFilter = (dashboardFilter === filter) ? null : filter;
+  if (dashboardData) render(dashboardData);
+}
+
+function clearDashboardFilter() {
+  dashboardFilter = null;
+  if (dashboardData) render(dashboardData);
+}
+
 function render(data) {
+  renderScoreboard(data);
   let html = '';
+
+  // When a scoreboard tile is active, show a flat grid of matching containers.
+  if (dashboardFilter) {
+    const filterLabels = {
+      updates: 'Updates available',
+      private: 'Private port binding',
+      local: 'Localhost port binding',
+      traefik: 'Traefik enabled'
+    };
+    const matches = collectContainers(data).filter(function(c) {
+      return scoreboardMatches(c, dashboardFilter);
+    });
+    html += '<h2>' + escapeHtml(filterLabels[dashboardFilter] || dashboardFilter) +
+      ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + matches.length + ')</span>' +
+      '<button type="button" class="filter-clear" onclick="clearDashboardFilter()">Clear filter</button></h2>';
+    if (matches.length > 0) {
+      html += '<div class="grid">';
+      for (const card of matches) {
+        html += renderCard(card);
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="loading">No matching containers.</div>';
+    }
+    document.getElementById('app').innerHTML = html;
+    return;
+  }
 
   if (viewMode === 'compose' && data.composeGrouped && data.composeProjects) {
     for (const project of data.composeProjects) {
@@ -907,6 +1155,10 @@ function switchTab(tab) {
     document.getElementById('page-traefik').style.display = '';
     document.getElementById('copy-json-btn').style.display = 'none';
     loadTraefik();
+  } else if (tab === 'help') {
+    document.getElementById('nav-help').classList.add('active');
+    document.getElementById('page-help').style.display = '';
+    document.getElementById('copy-json-btn').style.display = 'none';
   } else {
     document.querySelectorAll('.nav-tab')[1].classList.add('active');
     document.getElementById('page-icons').style.display = '';
@@ -1203,6 +1455,17 @@ function renderTraefik(resp) {
 
   var d = resp.data;
 
+  // Detect the "API entirely unreachable" state: every endpoint failed.
+  var endpointErrorCount = (d.endpointErrors && Object.keys(d.endpointErrors).length) || 0;
+  var notConfigured = d.notConfigured || [];
+  var answeredEndpoints = 9 - endpointErrorCount - notConfigured.length;
+  var allEndpointsFailed = endpointErrorCount > 0 &&
+    answeredEndpoints <= 0 &&
+    !d.version && !d.overview &&
+    !(d.entrypoints && d.entrypoints.length) &&
+    !(d.httpRouters && d.httpRouters.length) &&
+    !(d.httpServices && d.httpServices.length);
+
   // --- Version banner ---
   if (d.version) {
     html += '<div class="traefik-version-banner"><strong>Traefik ' + escapeHtml(d.version.version) + '</strong>';
@@ -1224,9 +1487,28 @@ function renderTraefik(resp) {
   }
 
   // --- Endpoint errors info ---
-  if (d.endpointErrors && Object.keys(d.endpointErrors).length > 0) {
-    var errKeys = Object.keys(d.endpointErrors);
-    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Some Traefik API endpoints returned errors</div><div class="err-detail">' + errKeys.join(', ') + ' — showing partial data</div></div></div>';
+  if (allEndpointsFailed) {
+    // API is entirely unreachable: lead with the resolved URL and the actual
+    // transport error instead of the vague partial-data banner.
+    var cause = resp.error || Object.values(d.endpointErrors)[0] || 'unknown error';
+    var causeDetail = escapeHtml(cause);
+    if (d.apiUrl || resp.apiUrl) {
+      causeDetail += '<br>API: <code>' + escapeHtml(d.apiUrl || resp.apiUrl) + '</code>';
+    }
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Traefik container detected but API is not accessible</div><div class="err-detail">' + causeDetail + '</div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
+  } else if (endpointErrorCount > 0) {
+    var errDetailParts = Object.keys(d.endpointErrors).map(function (k) {
+      return k + ': ' + d.endpointErrors[k];
+    });
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Some Traefik API endpoints returned errors</div><div class="err-detail">' + escapeHtml(errDetailParts.join('; ')) + ' — showing partial data</div></div></div>';
+  }
+
+  // --- Unsupported Traefik version ---
+  // dumbdock requires Traefik v3; other majors (or unparseable versions) get a
+  // clear error while still rendering whatever partial data was fetched.
+  if (d.version && d.versionSupported === false) {
+    var detected = escapeHtml(d.version.version || 'unknown');
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Unsupported Traefik version</div><div class="err-detail">Detected <strong>' + detected + '</strong>, but dumbdock requires <strong>Traefik v3</strong>. Some data below may be incomplete or missing. See the <a href="#help-traefik-api" onclick="switchTab(\'help\')">Help</a> tab for API configuration and migration guidance.</div></div></div>';
   }
 
   // --- Overview stats ---
@@ -1380,7 +1662,7 @@ function renderTraefik(resp) {
       html += '</tr>';
     }
     html += '</tbody></table></div></div>';
-  } else if (d.endpointErrors && d.endpointErrors.tlsCerts) {
+  } else if (notConfigured.indexOf('tlsCerts') !== -1 || (d.endpointErrors && d.endpointErrors.tlsCerts)) {
     html += '<div class="traefik-section"><h2>TLS Certificates</h2><div class="traefik-empty">Not configured</div></div>';
   }
 

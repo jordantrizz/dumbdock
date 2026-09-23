@@ -11,6 +11,8 @@
 * Search `doc/` folder before creating new documentation files to avoid duplicates.
 * After completing code work, suggest testing methods for the change to complete.
 * Add any issues that might be useful for the future to AGENTS.md
+* Go is not installed on the host. Run build/vet/test inside the local `golang:1.22-alpine` image:
+  `docker run --rm -v "$PWD":/src -w /src golang:1.22-alpine sh -c 'go build ./... && go vet ./... && go test ./...'`
 
 ## Security Issues (from security review, 2026-07-01)
 
@@ -21,6 +23,7 @@ Containers with `dumbdock.href: "javascript:alert(1)"` execute JavaScript in das
 ### H-03: Nil pointer dereference crash
 If `loadConfig()` returns `nil, error` (e.g., unparseable JSON file), the server panics.
 **Fix:** Assign fallback empty config after error: `cfg = &overrideConfig{Containers: map[string]cardOverride{}}`.
+Implemented 2026-09-23 in `main.go` (`cfg` fallback after `loadConfig` error); `validateConfig` in `startup.go` reports the load error as a warning.
 
 ### H-04: Unbounded memory from icon index fetch
 `readIndex()` uses `io.ReadAll` with no size limit — could exhaust memory.
@@ -43,11 +46,43 @@ No auth on dashboard — rely on reverse proxy or add Basic/Bearer auth.
 Implemented 2026-09-04 (`DUMBDOCK_AUTH_MODE`: `none` / `http-auth` / `web-auth`; see README "Authentication"):
 session cookie `dumbdock_session` uses `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Secure` flag (terminate TLS in proxy);
 sessions in-memory (8h, 30d remember-me, hourly purge); password compare is constant-time (SHA-256 + `crypto/subtle`).
+The mode is also settable via `authMode` in `dumbdock.json`; the env var wins (`resolveAuthMode` in `config.go`).
+When no mode is set it defaults to `web-auth` (reverted from `http-auth` on 2026-09-23); `none` is an explicit opt-out.
+When an auth mode is active but `DUMBDOCK_PASSWORD` is empty, `generateAuthPassword` (in `auth.go`) creates a random
+password for the run and `main.go` logs it once — an intentional exception to the redaction rule below; it is
+in-memory only and rotates on every restart.
 No new findings.
 
 ## README.md
 
 * Always keep the README.md file up to date with the latest changes made to the codebase. If you make a change that requires an update to the README.md file, make sure to update it accordingly.
+
+## Docker Compose Ports
+
+* In `docker-compose.yml.example`, `DUMBDOCK_PORT` selects the **published host port only**
+  (`127.0.0.1:${DUMBDOCK_PORT:-8080}:8080`); the app always listens on container port `8080`.
+* **Never** pass `DUMBDOCK_PORT` into the container environment. Doing so makes the app listen on
+  a different port than the published container port, so the host mapping answers nothing and the
+  browser gets "connection refused". Use `LISTEN_ADDR` to change the in-container listen address.
+* `control.sh`'s `ensure_free_dumbdock_port` bumps `DUMBDOCK_PORT` in `.env` to find a free **host**
+  port; this only works because the container port stays fixed at `8080`.
+
+## Container Healthcheck
+
+Implemented 2026-09-23 (Dockerfile, `docker-compose.yml`, `docker-compose.yml.example`; see README "Container Healthcheck"):
+
+* The runtime image is `FROM alpine:3.20` (not `scratch`) so busybox `nc` is available for the
+  healthcheck. CA certs are installed with `RUN apk add --no-cache ca-certificates` (needed by the
+  outbound registry checks in `updates.go`); do not revert to `scratch` without replacing the probe.
+* The Compose `healthcheck` does a **pure TCP connect** to `127.0.0.1:8080` (`nc -z -w 2`) —
+  `127.0.0.1` avoids DNS and `8080` is the fixed in-container port. It deliberately issues **no
+  HTTP request**, so it never depends on a route, a status code, or the auth mode, and it does not
+  require `/api/version` (or anything else) to be public. Do not switch it back to a `wget`/HTTP probe.
+* Timing is `interval: 30s`, `timeout: 5s`, `retries: 3`, `start_period: 10s`.
+* **Keep both compose files in sync** (`.yml` and `.yml.example`). `docker-compose.yml` is
+  gitignored in this repo; only the example is committed, and `control.sh setup` copies it.
+* The healthcheck is Compose-only (no Dockerfile `HEALTHCHECK`) and runs as the base image's
+  default user; adding a non-root `USER` is a separate decision.
 
 ## Versioning
 
@@ -59,6 +94,26 @@ No new findings.
   - `GET /api/version` endpoint returning `{"version":"<semver>","build":"<sha>"}`
   - Dashboard UI footer showing `v<semver> (build <sha>)`
   - Startup log line: `dumbdock v<semver> (build <sha>)`
+
+## Startup Logging
+
+Implemented 2026-09-23 (`startup.go`, `startup_test.go`; see README "Startup Logging"):
+
+* `validateConfig` (in `startup.go`) runs once at startup and returns a `configWarning` for every
+  invalid setting. Validation is **advisory**: warnings are logged as `warning: config: <field>: …`
+  and the process continues with defaults — never exit on invalid config.
+* Invalid raw values that resolve with a silent fallback (durations, port) are read from the
+  environment in `validateConfig` so they are still reported.
+* `logStartupConfig` prints the effective configuration as a `startup config:` block. **Secrets
+  must be redacted** via `redactSecret` — never log `DUMBDOCK_PASSWORD`, `GOTIFY_TOKEN`,
+  `TRAEFIK_API_TOKEN`, `TRAEFIK_API_PASS`, or config-file `traefikAPIToken`. Report presence only
+  (`(set)` / `(not set)`). **Exception:** the random password generated by `generateAuthPassword`
+  when `DUMBDOCK_PASSWORD` is empty is deliberately logged once at startup so the operator can
+  sign in — do not extend this exception to any other secret.
+* **Any new setting must be added to `startupConfig` and `logStartupConfig`**, and any new
+  validation rule to `validateConfig` with a matching case in `TestValidateConfig`.
+* Keep the documented `dumbdock v<semver> (build <sha>)` startup line; the `startup config:`
+  block is additive.
 
 ## Image Update Checks
 
@@ -77,3 +132,51 @@ Implemented 2026-09-17 (`updates.go`, `updates_test.go`; see README "Image Updat
 * `parseImageRef` in `updates.go` is the canonical image-reference normalizer for this feature;
   `imagePath` in `icons.go` remains the icon-specific parser.
 * No new Go module dependencies: the registry client is stdlib-only (`net/http`, `encoding/json`).
+
+## Traefik API Resilience
+
+Implemented 2026-09-23 (`traefik.go`, `traefik_test.go`; see README "Traefik Dashboard"):
+
+* **Reachability is distinct from detection.** `traefikContainerFound` means a running container
+  matched; `traefikDataErr` is set to `API unreachable at <url>: <cause>` only when **all** API
+  endpoints fail (`allEndpointFetchesFailed`). Partial failures leave `traefikDataErr` empty.
+* **404s are "not configured", not errors.** `fetchTraefikEndpoint` wraps 404s with
+  `errTraefikNotFound`; `fetchTraefikDashboard` collects them in `NotConfigured` (not
+  `EndpointErrors`), so they never count toward `allEndpointFetchesFailed`, never appear in the
+  partial-error banner, and render as "Not configured" (e.g. TLS certs). Keep it that way.
+* **Support both Traefik v2 and v3 overview shapes.** `/api/overview` counts use
+  `traefikOverviewCount`, which unmarshals a bare integer (v2) or an object with `total` (v3). Do
+  not revert it to `int` — that breaks v3 with `cannot unmarshal object into … of type int`.
+* **dumbdock requires Traefik v3.** `parseTraefikMajorVersion` extracts the major version from
+  `/api/version`; `MajorVersion` / `VersionSupported` are exposed in the payload. A non-v3 (or
+  unparseable) version is an **informational error**, not `traefikDataErr`: it renders as the
+  "Unsupported Traefik version" banner, logs once per state change via the folded
+  `traefikLogSignature` (version marker + error signature), and must never hard-block the
+  dashboard or be reported as `API unreachable`. `traefikSupportedMajorVersion` is the single
+  source of the supported major (3); bump it only with a deliberate compatibility decision.
+* **Log only on state change.** Endpoint errors and the unreachable warning are logged once per
+  error-signature change (`traefikErrorSignature`, deterministic across map order), with a single
+  `traefik: API recovered at <url>` on transition back to healthy. Do not log a success
+  `detected …` line while all endpoints are failing, and never on every poll.
+* **Fallback probing is bounded and unauthenticated.** When all endpoints fail, `traefikCandidateURLs`
+  yields ordered, de-duplicated candidates (primary, published `8080/tcp`, container IP `:8081`,
+  other published TCP ports); `probeTraefikAPIURL` does a 2s `GET /api/version` with no credentials
+  and counts any HTTP response (incl. 401/403) as reachable. At most one probe round per poll.
+* **Frontend contract.** `index.html` treats `endpointErrors` covering all 9 endpoints with no data
+  as the strong "API is not accessible" state and shows the URL + error text; partial errors list
+  `key: message` pairs. All interpolated values stay `escapeHtml`-escaped (H-02).
+* No new settings: `startupConfig` / `logStartupConfig` / `validateConfig` are unchanged.
+
+## Help Tab
+
+Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
+
+* The **Help** tab is always visible, immediately after Traefik. It is pure static markup in
+  `#page-help`/`#help-app` — no `loadHelp()` fetch, no `setInterval` refresh, and no backend route.
+  `switchTab('help')` only toggles visibility; keep it that way.
+* Add future guides by appending a `.traefik-section` block inside `#page-help` and an entry in the
+  guide table of contents (`.help-toc`). Reuse the existing `traefik-*`/`help-*` classes.
+* Help content is authored as static HTML only — never interpolate user/container data into it
+  (no XSS surface, per H-02).
+
+

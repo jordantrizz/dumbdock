@@ -26,6 +26,7 @@ type overrideConfig struct {
 	IconSets                   []IconSetConfig         `json:"iconSets,omitempty"`
 	TraefikAPIToken            string                  `json:"traefikAPIToken,omitempty"`
 	UpdateCheck                *bool                   `json:"updateCheck,omitempty"`
+	AuthMode                   string                  `json:"authMode,omitempty"`
 }
 
 func loadConfig(path string) (*overrideConfig, error) {
@@ -209,6 +210,23 @@ func updateCheckInterval(cfg *overrideConfig) time.Duration {
 		}
 	}
 	return 6 * time.Hour
+}
+
+// resolveAuthMode returns the effective authentication mode. Checks the
+// DUMBDOCK_AUTH_MODE env var first (trimmed + lowercased), then falls back to
+// the config file value, then defaults to "web-auth". Explicit "none" disables
+// auth; unknown values pass through unchanged so the caller can warn and
+// disable auth.
+func resolveAuthMode(cfg *overrideConfig) string {
+	if env := strings.ToLower(strings.TrimSpace(os.Getenv("DUMBDOCK_AUTH_MODE"))); env != "" {
+		return env
+	}
+	if cfg != nil {
+		if mode := strings.ToLower(strings.TrimSpace(cfg.AuthMode)); mode != "" {
+			return mode
+		}
+	}
+	return "web-auth"
 }
 
 

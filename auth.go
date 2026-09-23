@@ -20,6 +20,19 @@ const (
 	sessionMaxBody    = 1 << 20 // 1 MiB cap on login request bodies
 )
 
+// generateAuthPassword returns a random password used when an auth mode is
+// active but DUMBDOCK_PASSWORD is empty. It is logged once at startup so the
+// operator can sign in; it is in-memory only and rotates on every restart.
+func generateAuthPassword() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// rand.Read only fails when the OS RNG is broken; without randomness
+		// we cannot issue a safe password, so fail loudly.
+		log.Fatalf("auth: random password: %v", err)
+	}
+	return hex.EncodeToString(b[:])
+}
+
 // sessionStore is an in-memory token → expiry map, guarded by a mutex.
 // Sessions do not survive restarts (acceptable for a dashboard).
 type sessionStore struct {

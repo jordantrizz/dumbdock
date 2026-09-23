@@ -19,12 +19,15 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Unlabeled container section** — containers without `dumbdock.*` labels appear in an expandable list that shows current labels, container info, and copy-paste-ready examples for labeling via docker-compose or `dumbdock.json`.
 - **Config file overrides** — optionally define names, groups, icons, etc. in a JSON config file instead of (or in addition to) Docker labels.
 - **Alert notifications** — get notified via [ntfy.sh](https://ntfy.sh) or [Gotify](https://gotify.net) when new unlabeled containers are detected, with configurable cooldown.
-- **Password protection** — optional authentication via the `DUMBDOCK_PASSWORD` environment variable, in two modes selected by `DUMBDOCK_AUTH_MODE`: `http-auth` (HTTP Basic Authentication) or `web-auth` (web login form with username + password, "Remember me", and session cookies). When a password is set without a mode, Basic auth applies. Leave the password empty for no auth.
+- **Password protection** — authentication via the `DUMBDOCK_PASSWORD` environment variable, in two modes selected by `DUMBDOCK_AUTH_MODE`: `web-auth` (web login form with username + password, "Remember me", and session cookies, the default) or `http-auth` (HTTP Basic Authentication). Set `DUMBDOCK_AUTH_MODE=none` to disable auth. When an auth mode is active but no password is set, a random password is generated and logged once at startup.
 - **Network Warnings** — identifies containers with ports exposed on non-localhost IPs (▲) and surfaces [Traefik](https://traefik.io) proxy configuration (🔗) with clickable URLs extracted from `traefik.http.routers.*.rule` labels.
 - **Image update checks** — a background checker compares each running container's local image digest against the digest currently served by Docker Hub or GHCR and flags containers whose tag has moved with an `⬆ update available` badge (unsupported/local images show a neutral `? update unknown`). See [Image Update Checks](#image-update-checks).
+- **Dashboard scoreboard** — a clickable summary above the legend counts containers with image updates, private port bindings, localhost port bindings, and Traefik enabled; clicking a tile filters the dashboard to the matching containers. See [Dashboard Scoreboard](#dashboard-scoreboard).
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
 - **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
-- **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `scratch`.
+- **Help tab** — an always-visible **Help** tab (after Traefik) with static getting-started guides. The first guide, **Configure Traefik API Access**, walks through enabling Traefik's read-only API (insecure entrypoint or secured `api@internal`), configuring auth for dumbdock, verifying with `curl /api/version`, and troubleshooting the errors the Traefik tab surfaces. See [Help Tab](#help-tab).
+- **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `alpine:3.20` (a minimal image with `wget`, used by the container healthcheck).
+- **Container healthcheck** — the Compose stack ships a `healthcheck` that confirms the app is listening on its port (a TCP connect, no HTTP route or auth involved), so `docker compose ps` / `docker inspect` report the container as `healthy`. See [Container Healthcheck](#container-healthcheck).
 - **Cache-aware HTTP headers** — serves the dashboard HTML with `ETag` and `Cache-Control: no-cache` headers, and API responses with `Cache-Control: no-cache`. The ETag is derived from a build-time version string (Git SHA + timestamp) injected via ldflags, enabling browsers to revalidate efficiently with `304 Not Modified`. Version defaults to `"dev"` for local builds; Docker builds automatically get a version tag.
 
 ## Quick Start
@@ -43,6 +46,31 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 ```
 
 Then open **http://localhost:8080**.
+
+### Container Healthcheck
+
+The `dumbdock` service defines a Compose `healthcheck` that runs inside the container
+and checks that the app is listening on its port with a raw TCP connect:
+
+```yaml
+healthcheck:
+  test: ["CMD", "nc", "-z", "-w", "2", "127.0.0.1", "8080"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+```
+
+- The probe uses `127.0.0.1:8080` — the fixed in-container listen port (the published
+  host port set by `DUMBDOCK_PORT` is irrelevant inside the container) — which avoids any
+  DNS lookup.
+- It is a pure **TCP port check** (`nc -z`): it never issues an HTTP request, so it is
+  independent of every route, its status code, and the auth mode — the healthcheck works
+  with `DUMBDOCK_AUTH_MODE=none`, `http-auth`, and `web-auth` alike.
+- The `nc` probe requires the Alpine runtime base (`scratch` has no shell or `nc`),
+  which is why the image is built `FROM alpine:3.20`.
+- Check status with `docker compose ps` (shows `healthy` / `unhealthy`) or
+  `docker inspect --format '{{.State.Health.Status}}' dumbdock`.
 
 ### Using Docker directly
 
@@ -120,6 +148,7 @@ You can also define overrides via a JSON config file — useful for containers y
 {
   "autoDetection": true,
   "autoDetectedGroup": "Auto Detected",
+  "authMode": "web-auth",
   "containers": {
     "my-container-name": {
       "name": "My App",
@@ -139,6 +168,7 @@ You can also define overrides via a JSON config file — useful for containers y
 | `autoDetectedGroup` | string | `"Auto Detected"` | Group name to use for auto-detected containers. |
 | `autoDetectionServiceBlacklist` | array of strings | `["server", "db", "app"]` | Compose service names to skip when trying service-name-based icon matching (e.g., `["server", "db"]`). Generic names are unreliable for icon matching; the container still goes through other fallbacks (OCI title, known slugs). |
 | `containerBlacklist` | array of strings | `[]` | Container names to hide entirely from the dashboard (e.g., `["dumbdock", "traefik"]`). Useful for excluding infrastructure containers. |
+| `authMode` | string | `web-auth` | Authentication mode: `none`, `http-auth`, or `web-auth`. `DUMBDOCK_AUTH_MODE` overrides it. See [Authentication](#authentication). |
 | `containers` | object | `{}` | Per-container overrides keyed by container name. |
 | `iconSets` | array | *see [Icons](#icons)* | Configure icon providers. Each entry defines an icon set name, index URL, CDN URL template, format, and optional mappings. When present, replaces the built-in defaults entirely. |
 
@@ -149,6 +179,53 @@ Mount the config file:
 ```yaml
 volumes:
   - ./dumbdock.json:/config/dumbdock.json:ro
+```
+
+### Startup Logging
+
+On startup dumbdock validates its effective configuration and logs a redacted summary of what it
+will use. Validation is advisory — an invalid setting produces a `warning: config: <field>: …`
+line and the process continues with defaults, so a typo never takes the dashboard down. A missing
+or unparseable `dumbdock.json` is handled the same way (the server falls back to an empty config
+and keeps running).
+
+The `startup config:` block lists the version/build, config-file path and status, listen address,
+Docker socket, poll interval, auth mode, update-check settings, auto-detection settings,
+blacklists, icon sets, alert targets, and Traefik API settings. Secret-bearing values are never
+printed — they render as `(set)` / `(not set)`:
+
+| Redacted value | Source |
+|----------------|--------|
+| Auth password | `DUMBDOCK_PASSWORD` |
+| Gotify token | `GOTIFY_TOKEN` |
+| Traefik API token | `TRAEFIK_API_TOKEN` or `traefikAPIToken` |
+| Traefik API pass | `TRAEFIK_API_PASS` |
+
+Example:
+
+```
+dumbdock v0.0.4 (build 9ac2872)
+startup config:
+  version: 0.0.4 (build 9ac2872)
+  config file: /config/dumbdock.json (loaded)
+  listen address: :8080
+  docker socket: /var/run/docker.sock
+  poll interval: 10s
+  auth mode: web-auth
+  auth password: (set)
+  update checks: true (interval 6h0m0s)
+  auto-detection: true (group "Auto Detected", service blacklist: server, db, app)
+  container blacklist: (none)
+  icon sets: selfhst, dashboard-icons
+  dashboard url: https://dumbdock.example.com
+  ntfy topic: (not set)
+  gotify url: (not set)
+  gotify token: (not set)
+  alert cooldown: 5m0s
+  traefik api url: (not set)
+  traefik api token: (not set)
+  traefik api user: (not set)
+  traefik api pass: (not set)
 ```
 
 ### Grouping by Dependency
@@ -178,7 +255,7 @@ Behavior notes:
 
 ## Traefik Dashboard
 
-The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting.
+The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting. dumbdock requires **Traefik v3**; other major versions display an "Unsupported Traefik version" error (see [Supported Traefik version](#supported-traefik-version)).
 
 ### Auto-Discovery
 
@@ -188,6 +265,8 @@ dumbdock automatically finds the Traefik API URL using a fallback chain:
 2. **`TRAEFIK_API_URL` environment variable** — set on the dumbdock container (not Traefik).
 3. **Docker network IP** — reads the container's IP address from its first Docker network and appends port `:8080`. If the container's command specifies a custom entrypoint port (`--entrypoints.traefik.address=:PORT`), that port is used instead.
 4. **Published port** — falls back to the first published TCP port on `127.0.0.1` (preferring 8080).
+
+**Fallback probing:** if every Traefik API endpoint fails at the primary (container-IP) URL, dumbdock probes candidate URLs in order — the published `8080/tcp` host port, the container IP on `8081` (Traefik's default insecure API entrypoint), and any other published TCP port — and adopts the first one that answers `/api/version`. Probing uses a 2s timeout, sends no credentials, and runs at most once per poll.
 
 If none of these succeed, the Traefik tab shows an error explaining that the API URL could not be resolved.
 
@@ -207,7 +286,18 @@ Once the API URL is resolved, dumbdock fetches these Traefik API endpoints concu
 | `/api/tcp/services` | TCP service name, status, type, per-server health |
 | `/api/tls/certificates` | Certificate name, domains, subject, expiry, stores |
 
-Individual endpoint errors are reported gracefully — if an endpoint returns a 404 (e.g., no TLS certificates configured), a "Not available" or "Not configured" message is shown instead of breaking the whole page.
+Individual endpoint errors are reported gracefully — if an endpoint returns a 404 (e.g., no TLS certificates configured), a "Not available" or "Not configured" message is shown instead of breaking the whole page. The `GET /api/traefik` response lists such endpoints under `notConfigured` (informational) rather than `endpointErrors`, so a 404 never triggers the "Some Traefik API endpoints returned errors" banner or the unreachable-API state.
+
+dumbdock also tolerates both Traefik v2 and v3 API shapes: `/api/overview` counts are accepted either as bare integers (v2) or as objects such as `{"total": N, "warnings": 0, "errors": 0}` (v3).
+
+### Traefik API Enablement
+
+dumbdock reads Traefik's read-only API, which must be enabled and listening where dumbdock can reach it. The most common cause of `connection refused` errors in the logs is a Traefik API that is not exposed:
+
+- **Insecure entrypoint:** start Traefik with `--api.insecure=true` so the dashboard/API is served on the `traefik` entrypoint (default port `8080`).
+- **Secured API:** expose the `api@internal` service through a router (optionally with auth), and point dumbdock at it with `TRAEFIK_API_URL` or the `dumbdock.traefik.api` label.
+
+When the API is entirely unreachable, dumbdock logs the failure **once per error-state change** (not on every poll), logs a single `traefik: API recovered` line when it comes back, and the Traefik tab shows a "container detected but API is not accessible" banner containing the resolved API URL and the underlying error.
 
 ### API Authentication
 
@@ -218,7 +308,21 @@ Traefik's API can be secured. dumbdock supports two auth modes:
 
 The auth header is added server-side only — credentials never reach the browser.
 
-> **Note:** The Traefik tab only shows when a running container with "traefik" in its image name is detected. If Traefik stops, the tab disappears on the next poll cycle.
+> **Note:** The Traefik tab is always visible in the navigation bar (see above); when a running container with "traefik" in its image name is detected it shows the status dashboard, otherwise it shows install guidance.
+
+## Help Tab
+
+The **Help** tab is always visible in the navigation bar, immediately after **Traefik**. It contains static getting-started guides served as plain HTML — there is no data fetch or background refresh, so the page renders instantly.
+
+The first guide is **Configure Traefik API Access**, which covers:
+
+- **Option 1 — Insecure API**: starting Traefik with `--api.insecure=true` so the API/dashboard is served on the `traefik` entrypoint (default port `8080`), with `docker run` and Compose snippets and a security note about keeping that port on a private network. The guide notes that publishing `8080` is optional — on a shared Docker network dumbdock reaches the API at the container's IP, and it shows how to test it with `docker exec traefik wget/curl` (or a throwaway `curlimages/curl` container on the same network).
+- **Option 2 — Secured API**: exposing the `api@internal` service through a router (with optional basic-auth middleware) and pointing dumbdock at it via `TRAEFIK_API_URL` or the `dumbdock.traefik.api` label.
+- **Authentication**: `TRAEFIK_API_TOKEN` (bearer) or `TRAEFIK_API_USER` + `TRAEFIK_API_PASS` (basic), all applied server-side.
+- **Verification**: `curl -s http://<traefik-host>:8080/api/version` and the expected JSON response.
+- **Troubleshooting**: the `connection refused` signature, the Traefik tab's "container detected but API is not accessible" banner, wrong-URL fixes, 401/403 auth failures, and normal partial-data cases.
+
+To add a future guide, append a new `.traefik-section` block inside `#page-help` in `index.html` and add an entry to the guide table of contents — no JavaScript or API changes are required.
 
 ## Alerts
 
@@ -249,22 +353,26 @@ environment:
 
 ## Authentication
 
-dumbdock supports three authentication modes, selected by `DUMBDOCK_AUTH_MODE`:
+dumbdock supports three authentication modes, selected by the `DUMBDOCK_AUTH_MODE` environment variable or the `authMode` setting in `dumbdock.json` (the environment variable wins):
 
 | Mode | Value | Behavior |
 |------|-------|----------|
-| No auth | `none` (default) | Dashboard and API are open. |
-| HTTP Basic | `http-auth` | Browser-native login prompt; any username is accepted but the password must match `DUMBDOCK_PASSWORD`. This is also the behavior when `DUMBDOCK_AUTH_MODE` is unset but `DUMBDOCK_PASSWORD` is set. |
+| No auth | `none` | Dashboard and API are open. |
+| HTTP Basic | `http-auth` | Browser-native login prompt; any username is accepted but the password must match `DUMBDOCK_PASSWORD`. |
 | Web login | `web-auth` | Login form overlay (username + password + **Remember me**); session cookie `dumbdock_session` (`HttpOnly`, `SameSite=Lax`, `Path=/`). Standard sessions last 8 hours, "Remember me" sessions last 30 days. Sessions live in memory — restarting dumbdock logs everyone out. A logout button appears in the nav bar while logged in. |
 
-Unknown `DUMBDOCK_AUTH_MODE` values log a warning and disable auth; selecting a mode without setting `DUMBDOCK_PASSWORD` also disables auth with a warning (there is nothing to compare against).
+When neither `DUMBDOCK_AUTH_MODE` nor `authMode` is set, the mode defaults to `web-auth`. Set it to `none` explicitly to disable auth.
+
+When an auth mode is active but `DUMBDOCK_PASSWORD` is empty, a random password is generated for the run and logged once at startup (e.g. `warning: DUMBDOCK_PASSWORD is empty; generated password for this run: …`). It is held in memory only and changes on every restart.
+
+Unknown mode values (from either the env var or the config file) log a warning and disable auth.
 
 > **HTTPS note:** the session cookie does not set the `Secure` flag (dumbdock itself serves plain HTTP). Terminate TLS in a reverse proxy (e.g. Traefik) in front of dumbdock when exposing it beyond localhost.
 
 Configure via `.env` (see `.env.example`):
 
 ```bash
-DUMBDOCK_AUTH_MODE=web-auth
+DUMBDOCK_AUTH_MODE=web-auth   # or http-auth for a Basic pop-up; none to disable
 DUMBDOCK_PASSWORD=choose-a-strong-password
 DUMBDOCK_PORT=8080
 ```
@@ -275,7 +383,7 @@ DUMBDOCK_PORT=8080
 |----------|---------|-------------|
 | `DOCKER_SOCK` | `/var/run/docker.sock` | Path to the Docker socket |
 | `LISTEN_ADDR` | `:8080` | HTTP listen address (explicit override; wins over `DUMBDOCK_PORT`) |
-| `DUMBDOCK_PORT` | `8080` | Port the app listens on when `LISTEN_ADDR` is unset, and the default host port in `docker-compose.yml.example` |
+| `DUMBDOCK_PORT` | `8080` | Port the app listens on when `LISTEN_ADDR` is unset, and the default host port in `docker-compose.yml.example` (the container always listens on 8080 there) |
 | `POLL_INTERVAL` | `10s` | How often to poll Docker for container changes |
 | `DUMBDOCK_CONFIG` | `/config/dumbdock.json` | Path to the JSON override config file |
 | `DUMBDOCK_URL` | *(empty)* | Public URL of the dashboard (used in alert links) |
@@ -289,8 +397,8 @@ DUMBDOCK_PORT=8080
 | `CONTAINER_BLACKLIST` | *(empty)* | Comma-separated list of container names to hide entirely from the dashboard (e.g., `"dumbdock","traefik"`). Useful for excluding infrastructure containers. |
 | `DUMBDOCK_UPDATE_CHECK` | `true` | Check Docker Hub / GHCR for newer digests of each image tag. Set to `false` to disable the check entirely. Also configurable via `"updateCheck"` in `dumbdock.json`. |
 | `DUMBDOCK_UPDATE_INTERVAL` | `6h` | How long a successful update check is cached before the image tag is re-checked. |
-| `DUMBDOCK_PASSWORD` | *(empty)* | Password for dashboard auth. With `DUMBDOCK_AUTH_MODE=http-auth` (or unset) it enables HTTP Basic Authentication (any username accepted); with `web-auth` it is the login-form password. Leave empty for no auth. Auto-generated by `./control.sh setup`. |
-| `DUMBDOCK_AUTH_MODE` | `none` | Authentication mode: `none`, `http-auth`, or `web-auth` (see [Authentication](#authentication)). Unset with `DUMBDOCK_PASSWORD` set behaves as `http-auth`. |
+| `DUMBDOCK_PASSWORD` | *(empty)* | Password for dashboard auth. With `DUMBDOCK_AUTH_MODE=http-auth` it enables HTTP Basic Authentication (any username accepted); with `web-auth` it is the login-form password. When an auth mode is active and this is empty, a random password is generated and logged once for the run. Auto-generated by `./control.sh setup`. |
+| `DUMBDOCK_AUTH_MODE` | `web-auth` | Authentication mode: `none`, `http-auth`, or `web-auth` (see [Authentication](#authentication)). Overrides `authMode` in `dumbdock.json`. Defaults to `web-auth`; set to `none` to disable auth. |
 | `TRAEFIK_API_URL` | *(empty)* | Explicit Traefik API base URL. Overrides auto-discovery. |
 | `TRAEFIK_API_TOKEN` | *(empty)* | Bearer token for Traefik API authentication (sent as `Authorization: Bearer <token>`). Also accepted via `traefikAPIToken` in the config file. |
 | `TRAEFIK_API_USER` | *(empty)* | Username for Traefik Basic auth (use with `TRAEFIK_API_PASS`). |
@@ -426,6 +534,22 @@ dumbdock can flag containers whose running image tag has moved upstream. A backg
 
 Disable the feature with `DUMBDOCK_UPDATE_CHECK=false` or `"updateCheck": false` in `dumbdock.json`.
 
+## Dashboard Scoreboard
+
+The dashboard shows a clickable scoreboard directly above the legend, summarizing the current container set:
+
+| Tile | Counts containers with |
+|------|------------------------|
+| **Updates** | `updateAvailable` — a secondary line shows the number with an `unknown` update status |
+| **Private Port Binding** | `hasPrivateBinding` |
+| **Localhost Port Binding** | `hasLocalBinding` |
+| **Traefik Enabled** | `traefikEnabled` |
+
+- Counts cover every container in the `/api/containers` response (labeled + unlabeled), deduplicated by container ID, and refresh on each 10-second poll.
+- A container can be counted in more than one tile (for example, a container can have both a private binding and Traefik enabled).
+- Clicking a tile filters the dashboard to a flat grid of matching containers; clicking the active tile again, or the **Clear filter** control, restores the normal grouped/compose/dependency view.
+- Tiles with a zero count are dimmed. The filter is not persisted across page reloads.
+
 ## API
 
 dumbdock exposes these JSON API endpoints:
@@ -458,12 +582,22 @@ Returns Traefik detection and status data:
     "tcpRouters": [...],
     "tcpServices": [...],
     "tlsCerts": [...],
-    "endpointErrors": {}
+    "endpointErrors": {},
+    "notConfigured": [],
+    "majorVersion": 3,
+    "versionSupported": true
   }
 }
 ```
 
 When no Traefik container is found, `found` is `false` and `data` is `null`.
+
+### Supported Traefik version
+
+dumbdock requires **Traefik v3**. The detected major version is parsed from `/api/version`, returned as `majorVersion` / `versionSupported`, and:
+
+- a **v3** server renders normally with no warning;
+- a non-v3 (or unparseable) server shows an **"Unsupported Traefik version"** error banner in the Traefik tab while still rendering any partial data, and the server logs `traefik: unsupported version "…" (only v3 is supported)` **once per state change** (never on every poll).
 
 **`GET /api/containers`**
 
@@ -512,7 +646,7 @@ go build -o dumbdock .
 ├── updates.go       # Image update checks: reference parsing, registry clients, cache
 ├── updates_test.go  # Unit tests for the update checker
 ├── index.html       # Embedded single-page UI
-├── Dockerfile       # Multi-stage build (golang → scratch)
+├── Dockerfile       # Multi-stage build (golang → alpine:3.20)
 ├── docker-compose.yml.example
 └── rebuild.sh       # Helper to rebuild and restart
 ```

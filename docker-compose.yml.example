@@ -4,14 +4,16 @@ services:
     container_name: dumbdock
     restart: unless-stopped
     ports:
+      # Host port (DUMBDOCK_PORT) -> container port 8080. DUMBDOCK_PORT is the
+      # published host port only; the app listens on 8080 inside the container.
       - "127.0.0.1:${DUMBDOCK_PORT:-8080}:8080"
     environment:
       - POLL_INTERVAL=${POLL_INTERVAL:-10s}
-      - DUMBDOCK_PORT=${DUMBDOCK_PORT:-8080}
       # Auth mode: none (open) | http-auth (HTTP Basic) | web-auth (login form + session cookie).
-      # Unset with DUMBDOCK_PASSWORD set behaves as http-auth. A mode without a
-      # password disables auth with a warning. See README "Authentication".
-      - DUMBDOCK_AUTH_MODE=${DUMBDOCK_AUTH_MODE:-none}
+      # Overrides "authMode" in dumbdock.json. Defaults to web-auth; set to none to
+      # disable auth. With an auth mode and no DUMBDOCK_PASSWORD, a random password is
+      # generated and logged. See README "Authentication".
+      - DUMBDOCK_AUTH_MODE=${DUMBDOCK_AUTH_MODE:-web-auth}
       - DUMBDOCK_PASSWORD=${DUMBDOCK_PASSWORD:-} # enables auth for the http-auth/web-auth modes
       # - AUTO_DETECTION=true                            # enable/disable auto-detection
       # - AUTODETECT_GROUP_NAME=Auto Detected            # name for the auto-detected group
@@ -28,6 +30,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # - ./dumbdock.json:/config/dumbdock.json:ro     # override config (supports iconSets)
       # - ./my-icons/:/config/my-icons/:ro             # local icon index files
+    healthcheck:
+      # Pure TCP liveness: confirms the app is listening on its in-container port.
+      # 127.0.0.1 avoids DNS; 8080 is the fixed in-container listen port.
+      # No HTTP route or auth involved. Requires the alpine runtime base (nc).
+      test: ["CMD", "nc", "-z", "-w", "2", "127.0.0.1", "8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 # Dependency grouping: dumbdock reads the com.docker.compose.depends_on label
 # that Compose sets automatically. In the dashboard, switch the nav toggle to
