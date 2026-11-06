@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -454,6 +455,86 @@ func (s *issueStore) unacknowledge(id string) error {
 	}
 	s.rebuildLocked()
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// HTTP handlers
+// ---------------------------------------------------------------------------
+
+const (
+	issueRequestHeader = "X-Dumbdock-Request"
+	issueRequestValue  = "issues"
+)
+
+// writeIssueError emits a small JSON error body. Values are fixed strings, so
+// no caller-controlled text is reflected.
+func writeIssueError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// getHandler serves the current issue snapshot from memory.
+func (s *issueStore) getHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(s.snapshotIssues())
+}
+
+// requireIssueMutationRequest enforces the custom header that a cross-origin
+// HTML form cannot set. It is a CSRF defense in depth on top of the auth
+// middleware and the same-origin session cookie.
+func requireIssueMutationRequest(r *http.Request) bool {
+	return r.Header.Get(issueRequestHeader) == issueRequestValue
+}
+
+// acknowledgeHandler marks a server-issued issue ID acknowledged.
+func (s *issueStore) acknowledgeHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireIssueMutationRequest(r) {
+		writeIssueError(w, http.StatusForbidden, "missing "+issueRequestHeader+" header")
+		return
+	}
+	id := r.PathValue("id")
+	if !isIssueID(id) {
+		writeIssueError(w, http.StatusBadRequest, "invalid issue id")
+		return
+	}
+	if err := s.acknowledge(id); err != nil {
+		if err == errIssueNotFound {
+			writeIssueError(w, http.StatusNotFound, "issue not found")
+			return
+		}
+		writeIssueError(w, http.StatusInternalServerError, "could not persist acknowledgement")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(s.snapshotIssues())
+}
+
+// unacknowledgeHandler clears an acknowledgement.
+func (s *issueStore) unacknowledgeHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireIssueMutationRequest(r) {
+		writeIssueError(w, http.StatusForbidden, "missing "+issueRequestHeader+" header")
+		return
+	}
+	id := r.PathValue("id")
+	if !isIssueID(id) {
+		writeIssueError(w, http.StatusBadRequest, "invalid issue id")
+		return
+	}
+	if err := s.unacknowledge(id); err != nil {
+		if err == errIssueNotFound {
+			writeIssueError(w, http.StatusNotFound, "issue not found")
+			return
+		}
+		writeIssueError(w, http.StatusInternalServerError, "could not persist acknowledgement")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(s.snapshotIssues())
 }
 
 // ---------------------------------------------------------------------------

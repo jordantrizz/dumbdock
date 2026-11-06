@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -656,4 +659,195 @@ func TestCollectDockerVersionIssue(t *testing.T) {
 	if len(got) != 0 || cov.Checked || !strings.Contains(cov.Error, "status 500") {
 		t.Errorf("missing release data produced issues=%+v coverage=%+v", got, cov)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// HTTP handler tests
+// ---------------------------------------------------------------------------
+
+func newIssueTestMux(store *issueStore) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/issues", store.getHandler)
+	mux.HandleFunc("POST /api/issues/{id}/acknowledge", store.acknowledgeHandler)
+	mux.HandleFunc("DELETE /api/issues/{id}/acknowledge", store.unacknowledgeHandler)
+	return mux
+}
+
+func decodeIssues(t *testing.T, body []byte) issuesResponse {
+	t.Helper()
+	var resp issuesResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("decode issues response: %v\n%s", err, body)
+	}
+	return resp
+}
+
+func TestIssueGetHandler(t *testing.T) {
+	store := newIssueStore(t.TempDir())
+	iss := testIssue(categoryUpdate, "container", "c1", "Update")
+	if err := store.apply([]hostIssue{iss}, completeCoverage(), time.Now()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	newIssueTestMux(store).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/issues", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q", got)
+	}
+	resp := decodeIssues(t, rec.Body.Bytes())
+	if resp.Count != 1 || len(resp.Items) != 1 {
+		t.Errorf("response = %+v, want one active issue", resp)
+	}
+	if resp.Items[0].ID != iss.ID {
+		t.Errorf("issue ID = %q, want %q", resp.Items[0].ID, iss.ID)
+	}
+	if resp.Coverage.CollectionComplete != true {
+		t.Errorf("coverage = %+v", resp.Coverage)
+	}
+}
+
+func TestIssueGetHandlerEmptyListsAreArrays(t *testing.T) {
+	store := newIssueStore(t.TempDir())
+	rec := httptest.NewRecorder()
+	newIssueTestMux(store).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/issues", nil))
+
+	body := rec.Body.String()
+	if strings.Contains(body, `"items":null`) || strings.Contains(body, `"acknowledged":null`) {
+		t.Errorf("empty lists serialized as null: %s", body)
+	}
+}
+
+func TestIssueMutationHandlers(t *testing.T) {
+	store := newIssueStore(t.TempDir())
+	iss := testIssue(categoryHealth, "container", "c1", "Unhealthy")
+	if err := store.apply([]hostIssue{iss}, completeCoverage(), time.Now()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	mux := newIssueTestMux(store)
+
+	t.Run("missing header", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/issues/"+iss.ID+"/acknowledge", nil)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+	})
+
+	t.Run("invalid id", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/issues/not-an-id/acknowledge", nil)
+		req.Header.Set(issueRequestHeader, issueRequestValue)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
+
+	t.Run("unknown id", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/issues/"+newIssueID(categoryUpdate, "container", "nope")+"/acknowledge", nil)
+		req.Header.Set(issueRequestHeader, issueRequestValue)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+
+	t.Run("acknowledge then unacknowledge", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/issues/"+iss.ID+"/acknowledge", nil)
+		req.Header.Set(issueRequestHeader, issueRequestValue)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("acknowledge status = %d, want 200", rec.Code)
+		}
+		if got := decodeIssues(t, rec.Body.Bytes()); got.Count != 0 || len(got.Acknowledged) != 1 {
+			t.Errorf("after acknowledge: %+v", got)
+		}
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodDelete, "/api/issues/"+iss.ID+"/acknowledge", nil)
+		req.Header.Set(issueRequestHeader, issueRequestValue)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("unacknowledge status = %d, want 200", rec.Code)
+		}
+		if got := decodeIssues(t, rec.Body.Bytes()); got.Count != 1 || len(got.Acknowledged) != 0 {
+			t.Errorf("after unacknowledge: %+v", got)
+		}
+	})
+}
+
+func TestIssueMutationPersistenceFailure(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newIssueStore(filepath.Join(blocker, "state"))
+	iss := testIssue(categoryUpdate, "container", "c1", "Update")
+	if err := store.apply([]hostIssue{iss}, completeCoverage(), time.Now()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/issues/"+iss.ID+"/acknowledge", nil)
+	req.Header.Set(issueRequestHeader, issueRequestValue)
+	newIssueTestMux(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if got := store.snapshotIssues(); got.Count != 1 || len(got.Acknowledged) != 0 {
+		t.Errorf("failed persist changed the published snapshot: %+v", got)
+	}
+}
+
+func TestIssueRoutesBehindBasicAuth(t *testing.T) {
+	store := newIssueStore(t.TempDir())
+	handler := basicAuth(newIssueTestMux(store), "pw")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/issues", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated status = %d, want 401", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/issues", nil)
+	req.SetBasicAuth("any", "pw")
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("authenticated status = %d, want 200", rec.Code)
+	}
+}
+
+func TestIssueStoreConcurrentSnapshots(t *testing.T) {
+	store := newIssueStore(t.TempDir())
+	iss := testIssue(categoryUpdate, "container", "c1", "Update")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				_ = store.snapshotIssues()
+			}
+		}()
+	}
+	for i := 0; i < 20; i++ {
+		if err := store.apply([]hostIssue{iss}, completeCoverage(), time.Now()); err != nil {
+			t.Errorf("apply: %v", err)
+		}
+	}
+	wg.Wait()
 }

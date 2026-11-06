@@ -136,6 +136,46 @@ func main() {
 	var dependencyProjects []string
 	var networkingData networkingResponse
 
+	// Issue detection: acknowledgement state is loaded once at startup and the
+	// release comparison is refreshed in the background. The collectors run in
+	// the poll loop, never on an HTTP request.
+	issues := newIssueStore(stateDir())
+	for _, warning := range issues.load() {
+		log.Printf("warning: issues: %s: %s", warning.Field, warning.Message)
+	}
+	dockerReleases := newDockerReleaseChecker()
+
+	refreshIssues := func(allCards []containerCard, denylist []string) {
+		unhealthy, healthErr := fetchUnhealthyContainers(client)
+		daemon, daemonErr := fetchDockerVersion(client)
+		dockerReleases.startRefresh()
+		latest, lastChecked, releaseErr := dockerReleases.status()
+
+		traefikFound, _, traefikData, traefikErr := getTraefikState()
+
+		containerIssues, containerWarnings, containersComplete := collectContainerIssues(allCards, unhealthy, healthErr, denylist)
+		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefikFound, traefikData, traefikErr)
+		versionIssues, versionCoverage := collectDockerVersionIssue(daemon, daemonErr, latest, lastChecked, releaseErr)
+
+		found := make([]hostIssue, 0, len(containerIssues)+len(traefikIssues)+len(versionIssues))
+		found = append(found, containerIssues...)
+		found = append(found, traefikIssues...)
+		found = append(found, versionIssues...)
+
+		warnings := make([]string, 0, len(containerWarnings)+len(traefikWarnings))
+		warnings = append(warnings, containerWarnings...)
+		warnings = append(warnings, traefikWarnings...)
+
+		coverage := issueCoverage{
+			CollectionComplete: containersComplete && traefikComplete,
+			DockerVersion:      versionCoverage,
+			Warnings:           warnings,
+		}
+		if err := issues.apply(found, coverage, time.Now()); err != nil {
+			log.Printf("warning: issues: persist acknowledgements: %v", err)
+		}
+	}
+
 	refresh := func() {
 		containers, err := fetchContainers(client, false)
 		if err != nil {
@@ -416,6 +456,13 @@ func main() {
 		if alerts.enabled() {
 			alerts.checkNew(unlabeled)
 		}
+
+		// Collect host issues from the completed snapshot. I/O stays here in the
+		// poll path so /api/issues is a pure cache read.
+		allCards := make([]containerCard, 0, len(cards)+len(unlabeled))
+		allCards = append(allCards, cards...)
+		allCards = append(allCards, unlabeled...)
+		refreshIssues(allCards, contBlacklist)
 	}
 
 	refreshNetworking := func() {
@@ -468,6 +515,12 @@ func main() {
 		w.Header().Set("Cache-Control", "no-cache")
 		json.NewEncoder(w).Encode(networkingData)
 	})
+
+	// Host issues. The GET is a cache read; the acknowledgement writes are
+	// guarded by the auth middleware plus a non-simple request header.
+	mux.HandleFunc("GET /api/issues", issues.getHandler)
+	mux.HandleFunc("POST /api/issues/{id}/acknowledge", issues.acknowledgeHandler)
+	mux.HandleFunc("DELETE /api/issues/{id}/acknowledge", issues.unacknowledgeHandler)
 
 	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
