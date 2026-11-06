@@ -251,6 +251,22 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .help-toc a{color:#58a6ff;text-decoration:none;font-size:0.9rem}
 .help-toc a:hover{text-decoration:underline}
 .help-anchor{scroll-margin-top:1rem}
+
+/* ===== Issues Page ===== */
+.nav-badge{display:inline-block;min-width:1.15rem;margin-left:0.35rem;padding:0 0.3rem;border-radius:999px;background:#f85149;color:#fff;font-size:0.7rem;font-weight:700;line-height:1.15rem;text-align:center;vertical-align:middle}
+.nav-tab.active .nav-badge{background:#fff;color:#1f6feb}
+.issues-meta{display:flex;flex-wrap:wrap;gap:1rem;font-size:0.8rem;color:#8b949e;margin:0 0 1rem}
+.issue-sev{display:inline-block;padding:2px 7px;border-radius:4px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap}
+.issue-sev-error{color:#f85149;background:#2f0e12}
+.issue-sev-warning{color:#d29922;background:#2a1f0a}
+.issue-title{color:#e1e4e8;font-weight:500}
+.issue-detail{color:#8b949e;font-size:0.8rem;line-height:1.45;margin-top:0.2rem;word-break:break-word}
+.issue-source{color:#8b949e;font-size:0.8rem;white-space:nowrap}
+.issue-object{color:#58a6ff;font-family:monospace;font-size:0.8rem;word-break:break-all}
+.issue-time{color:#8b949e;font-size:0.78rem;white-space:nowrap}
+.issue-action{padding:0.28rem 0.65rem;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:0.78rem;white-space:nowrap;transition:all 0.15s}
+.issue-action:hover:not(:disabled){color:#f0f2f5;background:#21262d;border-color:#8b949e}
+.issue-action:disabled{opacity:0.5;cursor:default}
 </style>
 </head>
 <body>
@@ -259,8 +275,9 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
   <div class="nav-tabs">
     <button class="nav-tab active" id="nav-dashboard" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="nav-tab" id="nav-networking" onclick="switchTab('networking')">Networking</button>
-    <button class="nav-tab" id="nav-icons" onclick="switchTab('icons')">Icons</button>
     <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
+    <button class="nav-tab" id="nav-issues" onclick="switchTab('issues')" aria-label="Issues">Issues<span class="nav-badge" id="issues-count" style="display:none" aria-label="0 active issues">0</span></button>
+    <button class="nav-tab" id="nav-icons" onclick="switchTab('icons')">Icons</button>
     <button class="nav-tab" id="nav-help" onclick="switchTab('help')">Help</button>
   </div>
   <span class="nav-separator"></span>
@@ -303,6 +320,12 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 <div id="page-traefik" style="display:none">
   <div id="traefik-app">
     <div class="loading">Loading Traefik status...</div>
+  </div>
+</div>
+
+<div id="page-issues" style="display:none">
+  <div id="issues-app">
+    <div class="loading">Loading issues...</div>
   </div>
 </div>
 
@@ -1006,6 +1029,7 @@ async function submitLogin(e) {
   hideLogin();
   load();
   loadVersion();
+  loadIssues(false);
   refreshActiveTab();
   return false;
 }
@@ -1022,13 +1046,17 @@ checkAuth().then(function() {
     showLogin();
   } else {
     load();
+    loadIssues(false);
     refreshActiveTab();
   }
 });
-loadTraefik();
 setInterval(function() {
   if (authMode === 'web-auth' && !authed) return;
   load();
+  // The Issues badge stays current on every tab; its page is only re-rendered
+  // when it is the visible tab.
+  var issuesPage = document.getElementById('page-issues');
+  loadIssues(issuesPage && issuesPage.style.display !== 'none');
   // Only refresh Traefik data if the Traefik tab is currently visible.
   var traefikPage = document.getElementById('page-traefik');
   if (traefikPage && traefikPage.style.display !== 'none') {
@@ -1134,8 +1162,9 @@ function toggleGroupView() {
 
 // ---- Tab switching ----
 let iconsData = null;
+let issuesData = null;
 // Tab ids that may appear in the URL fragment (#dashboard, #networking, ...).
-var TAB_IDS = ['dashboard', 'networking', 'icons', 'traefik', 'help'];
+var TAB_IDS = ['dashboard', 'networking', 'traefik', 'issues', 'icons', 'help'];
 // The currently displayed tab; drives refreshActiveTab() and the hashchange guard.
 var currentTab = 'dashboard';
 
@@ -1177,6 +1206,14 @@ function setActiveTab(tab) {
   var page = document.getElementById('page-' + tab);
   if (page) page.style.display = '';
   document.getElementById('copy-json-btn').style.display = (tab === 'dashboard') ? '' : 'none';
+
+  // The group/compose/dependency toggle only applies to the container grid, so
+  // it is only offered on the Dashboard. Its selected mode is preserved.
+  var groupBtn = document.getElementById('group-toggle-btn');
+  if (groupBtn) {
+    groupBtn.style.display = (tab === 'dashboard') ? '' : 'none';
+    groupBtn.classList.toggle('active', viewMode !== 'group');
+  }
 }
 
 // Fetch data for the currently visible tab (dashboard and help have no loader).
@@ -1185,6 +1222,8 @@ function refreshActiveTab() {
     loadNetworking();
   } else if (currentTab === 'traefik') {
     loadTraefik();
+  } else if (currentTab === 'issues') {
+    loadIssues(true);
   } else if (currentTab === 'icons' && !iconsData) {
     loadIcons();
   }
@@ -1462,6 +1501,203 @@ function formatNetworkPorts(ports) {
     }
   }
   return parts.join(', ');
+}
+
+// ===== Issues =====
+
+async function loadIssues(renderPage) {
+  var container = document.getElementById('issues-app');
+  try {
+    var res = await apiFetch('/api/issues');
+    if (!res) return;
+    var data = await res.json();
+    issuesData = data;
+    updateIssuesCount(data.count || 0);
+    if (renderPage || currentTab === 'issues') renderIssues(data);
+  } catch (e) {
+    if (!renderPage && currentTab !== 'issues') return;
+    if (container) {
+      container.innerHTML = '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Failed to load issues</div><div class="err-detail">' + escapeHtml(e.message) + '</div><button class="err-retry" onclick="loadIssues(true)">Retry</button></div></div>';
+    }
+  }
+}
+
+// Update the navigation badge. The badge is hidden at zero so a healthy host
+// shows no counter.
+function updateIssuesCount(count) {
+  var badge = document.getElementById('issues-count');
+  if (!badge) return;
+  badge.textContent = String(count);
+  badge.style.display = count > 0 ? '' : 'none';
+  var nav = document.getElementById('nav-issues');
+  if (nav) nav.setAttribute('aria-label', 'Issues (' + count + ' active)');
+}
+
+function formatIssueTime(value) {
+  if (!value) return '—';
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return escapeHtml(String(value));
+  return d.toLocaleString();
+}
+
+function issueCategoryLabel(category) {
+  var labels = {
+    'container-exposure': 'Exposed ports',
+    'container-update': 'Image updates',
+    'container-health': 'Container health',
+    'docker-version': 'Docker Engine',
+    'traefik-api': 'Traefik API',
+    'traefik-version': 'Traefik version',
+    'traefik-entity': 'Traefik entities',
+    'traefik-backend': 'Traefik backends'
+  };
+  return labels[category] || String(category || 'other');
+}
+
+// Stable category order, then any unknown category in first-seen order.
+var ISSUE_CATEGORY_ORDER = ['container-health', 'traefik-api', 'traefik-backend', 'traefik-entity',
+  'container-exposure', 'container-update', 'docker-version', 'traefik-version'];
+
+function groupIssuesByCategory(items) {
+  var groups = [];
+  var index = {};
+  for (const item of items) {
+    var key = item.category || 'other';
+    if (index[key] === undefined) {
+      index[key] = groups.length;
+      groups.push({ category: key, items: [] });
+    }
+    groups[index[key]].items.push(item);
+  }
+  groups.sort(function(a, b) {
+    var ai = ISSUE_CATEGORY_ORDER.indexOf(a.category);
+    var bi = ISSUE_CATEGORY_ORDER.indexOf(b.category);
+    if (ai === -1) ai = ISSUE_CATEGORY_ORDER.length;
+    if (bi === -1) bi = ISSUE_CATEGORY_ORDER.length;
+    return ai - bi;
+  });
+  return groups;
+}
+
+function renderIssueRows(items, acknowledged) {
+  var html = '';
+  for (const item of items) {
+    var sev = item.severity === 'error' ? 'error' : 'warning';
+    var object = '';
+    if (item.containerName) {
+      object = escapeHtml(item.containerName);
+    } else if (item.source) {
+      object = escapeHtml(item.source);
+    }
+    var timeLabel = acknowledged ? formatIssueTime(item.acknowledgedAt) : formatIssueTime(item.lastObservedAt);
+    var action = acknowledged
+      ? '<button type="button" class="issue-action" onclick="setIssueAcknowledged(this, \'' + escapeHtml(item.id) + '\', false)">Unacknowledge</button>'
+      : '<button type="button" class="issue-action" onclick="setIssueAcknowledged(this, \'' + escapeHtml(item.id) + '\', true)">Acknowledge</button>';
+    html += '<tr>' +
+      '<td><span class="issue-sev issue-sev-' + sev + '">' + sev + '</span></td>' +
+      '<td><div class="issue-title">' + escapeHtml(item.title) + '</div>' +
+        '<div class="issue-detail">' + escapeHtml(item.detail) + '</div></td>' +
+      '<td class="issue-object">' + object + '</td>' +
+      '<td class="issue-time">' + escapeHtml(timeLabel) + '</td>' +
+      '<td>' + action + '</td>' +
+      '</tr>';
+  }
+  return html;
+}
+
+function renderIssueSection(heading, items, acknowledged) {
+  var html = '<div class="traefik-section"><h2>' + escapeHtml(heading) +
+    ' <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + items.length + ')</span></h2>';
+  if (items.length === 0) {
+    html += '<div class="traefik-empty">No ' + (acknowledged ? 'acknowledged' : 'active') + ' issues.</div></div>';
+    return html;
+  }
+  for (const group of groupIssuesByCategory(items)) {
+    html += '<h3>' + escapeHtml(issueCategoryLabel(group.category)) +
+      ' <span style="color:#6e7681;font-weight:400;font-size:0.8rem">(' + group.items.length + ')</span></h3>';
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr>' +
+      '<th>Severity</th><th>Issue</th><th>Source</th><th>' + (acknowledged ? 'Acknowledged' : 'Observed') + '</th><th></th>' +
+      '</tr></thead><tbody>' + renderIssueRows(group.items, acknowledged) + '</tbody></table></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderIssues(data) {
+  var container = document.getElementById('issues-app');
+  if (!container) return;
+
+  var items = data.items || [];
+  var acknowledged = data.acknowledged || [];
+  var coverage = data.coverage || {};
+  var warnings = coverage.warnings || [];
+
+  var html = '<div class="issues-meta">' +
+    '<span>Active: <strong>' + items.length + '</strong></span>' +
+    '<span>Acknowledged: <strong>' + acknowledged.length + '</strong></span>' +
+    (data.checkedAt ? '<span>Checked: ' + formatIssueTime(data.checkedAt) + '</span>' : '') +
+    '<span>Collection: ' + (coverage.collectionComplete === false ? 'partial' : 'complete') + '</span>' +
+    '</div>';
+
+  if (coverage.collectionComplete === false) {
+    html += '<div class="networking-warning-banner"><span class="err-icon">&#9888;</span><div class="err-body">' +
+      '<div class="err-title">Some issue sources could not be checked</div>' +
+      '<div class="err-detail">' + (warnings.length > 0 ? warnings.map(escapeHtml).join('<br>') : 'Acknowledgements are retained until a complete check confirms a finding is resolved.') + '</div>' +
+      '</div></div>';
+  }
+
+  if (coverage.dockerVersion && coverage.dockerVersion.error) {
+    html += '<div class="issues-meta"><span>Docker Engine comparison: ' + escapeHtml(coverage.dockerVersion.error) + '</span></div>';
+  }
+
+  html += renderIssueSection('Active', items, false);
+  if (acknowledged.length > 0) {
+    html += renderIssueSection('Acknowledged', acknowledged, true);
+  }
+
+  container.innerHTML = html;
+}
+
+async function setIssueAcknowledged(btn, id, acknowledged) {
+  if (!/^[0-9a-f]{64}$/.test(id)) return;
+  var original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = acknowledged ? 'Acknowledging…' : 'Restoring…';
+  var errEl = document.getElementById('issues-error');
+  if (errEl) errEl.remove();
+  try {
+    var res = await apiFetch('/api/issues/' + encodeURIComponent(id) + '/acknowledge', {
+      method: acknowledged ? 'POST' : 'DELETE',
+      headers: {'X-Dumbdock-Request': 'issues'}
+    });
+    if (!res) return;
+    if (!res.ok) throw new Error('request failed (' + res.status + ')');
+    var data = await res.json();
+    issuesData = data;
+    updateIssuesCount(data.count || 0);
+    renderIssues(data);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = original;
+    var app = document.getElementById('issues-app');
+    if (app && !document.getElementById('issues-error')) {
+      var banner = document.createElement('div');
+      banner.id = 'issues-error';
+      banner.className = 'networking-warning-banner';
+      var body = document.createElement('div');
+      body.className = 'err-body';
+      var title = document.createElement('div');
+      title.className = 'err-title';
+      title.textContent = 'Could not update the issue';
+      var detail = document.createElement('div');
+      detail.className = 'err-detail';
+      detail.textContent = e.message;
+      body.appendChild(title);
+      body.appendChild(detail);
+      banner.appendChild(body);
+      app.insertBefore(banner, app.firstChild);
+    }
+  }
 }
 
 // ===== Traefik Dashboard =====
