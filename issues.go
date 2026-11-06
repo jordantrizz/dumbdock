@@ -455,3 +455,314 @@ func (s *issueStore) unacknowledge(id string) error {
 	s.rebuildLocked()
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// Collectors
+// ---------------------------------------------------------------------------
+
+// shortContainerID matches the 12-character ID dumbdock exposes on cards while
+// tolerating IDs that are already truncated.
+func shortContainerID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+// collectContainerIssues turns the current container snapshot into findings.
+// It deduplicates by container ID, skips denylisted containers, and reports
+// whether the health input was available.
+func collectContainerIssues(cards []containerCard, unhealthy []dockerContainer, unhealthyErr error, denylist []string) ([]hostIssue, []string, bool) {
+	unique := make(map[string]containerCard, len(cards))
+	for _, c := range cards {
+		if c.ContainerID == "" {
+			continue
+		}
+		if isInBlacklist(c.ContainerName, denylist) {
+			continue
+		}
+		if _, ok := unique[c.ContainerID]; ok {
+			continue
+		}
+		unique[c.ContainerID] = c
+	}
+
+	var issues []hostIssue
+	for _, c := range unique {
+		if c.UpdateAvailable {
+			issues = append(issues, hostIssue{
+				ID:            newIssueID(categoryUpdate, "container", c.ContainerID),
+				Category:      categoryUpdate,
+				Severity:      severityWarning,
+				Title:         "Container image update available",
+				Detail:        fmt.Sprintf("A newer digest is available for %s.", c.Image),
+				Source:        "container",
+				ContainerID:   c.ContainerID,
+				ContainerName: c.ContainerName,
+			})
+		}
+		if c.HasPublicBinding {
+			ips := append([]string(nil), c.PublicBindingIPs...)
+			sort.Strings(ips)
+			detail := "Published on all interfaces."
+			if len(ips) > 0 {
+				detail = "Published on " + strings.Join(ips, ", ") + "."
+			}
+			issues = append(issues, hostIssue{
+				ID:            newIssueID(categoryExposure, "container", c.ContainerID),
+				Category:      categoryExposure,
+				Severity:      severityWarning,
+				Title:         "Container ports are publicly bound",
+				Detail:        detail + " Bind published ports to 127.0.0.1 or a private address unless public access is intended.",
+				Source:        "container",
+				ContainerID:   c.ContainerID,
+				ContainerName: c.ContainerName,
+			})
+		}
+	}
+
+	var warnings []string
+	complete := true
+	if unhealthyErr != nil {
+		complete = false
+		warnings = append(warnings, "container health: "+truncateForLog(unhealthyErr.Error(), 160))
+	}
+
+	for _, c := range unhealthy {
+		name := containerName(c)
+		if isInBlacklist(name, denylist) {
+			continue
+		}
+		id := shortContainerID(c.ID)
+		card, ok := unique[id]
+		if !ok {
+			// A stopped container can still carry a last-known health state;
+			// only containers the dashboard currently shows are findings.
+			continue
+		}
+		label := card.ContainerName
+		if label == "" {
+			label = name
+		}
+		issues = append(issues, hostIssue{
+			ID:            newIssueID(categoryHealth, "container", id),
+			Category:      categoryHealth,
+			Severity:      severityError,
+			Title:         "Container is unhealthy",
+			Detail:        fmt.Sprintf("%s (%s) reports Docker health status \"unhealthy\".", label, card.Image),
+			Source:        "container",
+			ContainerID:   id,
+			ContainerName: label,
+		})
+	}
+
+	return issues, warnings, complete
+}
+
+// collectTraefikIssues turns the current Traefik state into findings. A missing
+// Traefik container is guidance, not an issue; a 404/not-configured endpoint is
+// informational, not a finding.
+func collectTraefikIssues(found bool, data *traefikDashboardData, errStr string) ([]hostIssue, []string, bool) {
+	if !found {
+		return nil, nil, true
+	}
+	if data == nil {
+		if strings.TrimSpace(errStr) == "" {
+			return nil, nil, true
+		}
+		return []hostIssue{{
+			ID:       newIssueID(categoryTraefikAPI, "traefik", "api"),
+			Category: categoryTraefikAPI,
+			Severity: severityError,
+			Title:    "Traefik API is unreachable",
+			Detail:   truncateForLog(errStr, 300),
+			Source:   "traefik",
+		}}, []string{"traefik: " + truncateForLog(errStr, 160)}, false
+	}
+
+	var issues []hostIssue
+	var warnings []string
+	complete := true
+
+	if allEndpointFetchesFailed(data) {
+		detail := strings.TrimSpace(errStr)
+		if detail == "" {
+			_, detail = traefikErrorSignature(data)
+		}
+		issues = append(issues, hostIssue{
+			ID:       newIssueID(categoryTraefikAPI, "traefik", "api"),
+			Category: categoryTraefikAPI,
+			Severity: severityError,
+			Title:    "Traefik API is unreachable",
+			Detail:   truncateForLog(detail, 300),
+			Source:   "traefik",
+		})
+		warnings = append(warnings, "traefik: API endpoint data unavailable")
+		complete = false
+	} else if len(data.EndpointErrors) > 0 {
+		names := make([]string, 0, len(data.EndpointErrors))
+		for name := range data.EndpointErrors {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			issues = append(issues, hostIssue{
+				ID:       newIssueID(categoryTraefikAPI, "traefik", "endpoint/"+name),
+				Category: categoryTraefikAPI,
+				Severity: severityWarning,
+				Title:    "Traefik API endpoint failed",
+				Detail:   fmt.Sprintf("%s: %s", name, truncateForLog(data.EndpointErrors[name], 240)),
+				Source:   "traefik",
+			})
+		}
+		warnings = append(warnings, "traefik: some API endpoints returned errors")
+		complete = false
+	}
+
+	if data.Version != nil && !data.VersionSupported {
+		issues = append(issues, hostIssue{
+			ID:       newIssueID(categoryTraefikVersion, "traefik", "version"),
+			Category: categoryTraefikVersion,
+			Severity: severityWarning,
+			Title:    "Unsupported Traefik version",
+			Detail: fmt.Sprintf("Detected Traefik %s (major %d); dumbdock supports major version %d.",
+				truncateForLog(data.Version.Version, 40), data.MajorVersion, traefikSupportedMajorVersion),
+			Source: "traefik",
+		})
+	}
+
+	entities := []struct {
+		kind   string
+		key    string
+		issues []traefikEntityStatus
+	}{
+		{"HTTP router", "http-router", routerStatuses(data.HTTPRouters)},
+		{"TCP router", "tcp-router", routerStatuses(data.TCPRouters)},
+		{"HTTP service", "http-service", serviceStatuses(data.HTTPServices)},
+		{"TCP service", "tcp-service", serviceStatuses(data.TCPServices)},
+		{"middleware", "middleware", middlewareStatuses(data.Middlewares)},
+	}
+	for _, group := range entities {
+		for _, e := range group.issues {
+			switch e.status {
+			case "disabled", "warning", "error":
+			default:
+				continue
+			}
+			sev := severityWarning
+			if e.status == "error" {
+				sev = severityError
+			}
+			issues = append(issues, hostIssue{
+				ID:       newIssueID(categoryTraefikEntity, "traefik", group.key+"/"+e.name),
+				Category: categoryTraefikEntity,
+				Severity: sev,
+				Title:    fmt.Sprintf("Traefik %s is %s", group.kind, e.status),
+				Detail:   fmt.Sprintf("%s %q reports status %q.", group.kind, truncateForLog(e.name, 120), e.status),
+				Source:   "traefik",
+			})
+		}
+	}
+
+	for _, svc := range append(append([]traefikService{}, data.HTTPServices...), data.TCPServices...) {
+		urls := make([]string, 0, len(svc.ServerStatus))
+		for url := range svc.ServerStatus {
+			urls = append(urls, url)
+		}
+		sort.Strings(urls)
+		for _, url := range urls {
+			if !strings.EqualFold(strings.TrimSpace(svc.ServerStatus[url]), "down") {
+				continue
+			}
+			issues = append(issues, hostIssue{
+				ID:       newIssueID(categoryTraefikBackend, "traefik", "service/"+svc.Name+"/"+url),
+				Category: categoryTraefikBackend,
+				Severity: severityError,
+				Title:    "Traefik backend is down",
+				Detail:   fmt.Sprintf("Service %q reports server %s as DOWN.", truncateForLog(svc.Name, 120), truncateForLog(url, 200)),
+				Source:   "traefik",
+			})
+		}
+	}
+
+	return issues, warnings, complete
+}
+
+// traefikEntityStatus is the name/status pair extracted from one Traefik entity.
+type traefikEntityStatus struct {
+	name   string
+	status string
+}
+
+func routerStatuses(list []traefikRouter) []traefikEntityStatus {
+	out := make([]traefikEntityStatus, 0, len(list))
+	for _, r := range list {
+		out = append(out, traefikEntityStatus{name: r.Name, status: strings.ToLower(strings.TrimSpace(r.Status))})
+	}
+	return out
+}
+
+func serviceStatuses(list []traefikService) []traefikEntityStatus {
+	out := make([]traefikEntityStatus, 0, len(list))
+	for _, s := range list {
+		out = append(out, traefikEntityStatus{name: s.Name, status: strings.ToLower(strings.TrimSpace(s.Status))})
+	}
+	return out
+}
+
+func middlewareStatuses(list []traefikMiddleware) []traefikEntityStatus {
+	out := make([]traefikEntityStatus, 0, len(list))
+	for _, m := range list {
+		out = append(out, traefikEntityStatus{name: m.Name, status: strings.ToLower(strings.TrimSpace(m.Status))})
+	}
+	return out
+}
+
+// collectDockerVersionIssue compares the daemon version with the cached latest
+// stable Moby release. An unavailable comparison is coverage metadata, never an
+// active finding.
+func collectDockerVersionIssue(daemon dockerVersionResponse, daemonErr error, latest string, lastChecked time.Time, checkErr string) ([]hostIssue, issueCoverageSource) {
+	coverage := issueCoverageSource{}
+
+	if daemonErr != nil {
+		coverage.Error = "daemon version unavailable"
+		return nil, coverage
+	}
+	if strings.TrimSpace(latest) == "" {
+		coverage.Error = "release comparison unavailable"
+		if strings.TrimSpace(checkErr) != "" {
+			coverage.Error += ": " + truncateForLog(checkErr, 120)
+		}
+		return nil, coverage
+	}
+	coverage.Checked = true
+	if !lastChecked.IsZero() {
+		t := lastChecked
+		coverage.LastCheckedAt = &t
+	}
+
+	daemonSemver, ok := parseDockerEngineVersion(daemon.Version)
+	if !ok {
+		coverage.Error = "daemon version unparseable"
+		return nil, coverage
+	}
+	latestSemver, ok := parseDockerEngineVersion(latest)
+	if !ok {
+		coverage.Error = "latest release version unparseable"
+		return nil, coverage
+	}
+
+	if compareDockerVersions(daemonSemver, latestSemver) >= 0 {
+		return nil, coverage
+	}
+
+	return []hostIssue{{
+		ID:       newIssueID(categoryDockerVersion, "docker", "engine"),
+		Category: categoryDockerVersion,
+		Severity: severityWarning,
+		Title:    "Docker Engine may be out of date",
+		Detail: fmt.Sprintf("Daemon version %s is older than the latest stable Moby release %s. Distribution packages may intentionally lag upstream; verify before upgrading.",
+			truncateForLog(daemon.Version, 40), truncateForLog(latest, 40)),
+		Source: "docker",
+	}}, coverage
+}

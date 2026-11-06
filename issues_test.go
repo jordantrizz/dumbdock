@@ -384,3 +384,276 @@ func TestStateDirDefaultAndOverride(t *testing.T) {
 		t.Errorf("stateDir() = %q, want /var/lib/dumbdock", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Collector tests
+// ---------------------------------------------------------------------------
+
+func findIssue(issues []hostIssue, category issueCategory, key string) *hostIssue {
+	want := newIssueID(category, "container", key)
+	for i := range issues {
+		if issues[i].ID == want {
+			return &issues[i]
+		}
+	}
+	return nil
+}
+
+func TestCollectContainerIssues(t *testing.T) {
+	cards := []containerCard{
+		{
+			ContainerID:    "aaaaaaaaaaaa",
+			ContainerName:  "web",
+			Image:          "nginx:1",
+			UpdateAvailable: true,
+			HasPublicBinding: true,
+			PublicBindingIPs: []string{"0.0.0.0", "203.0.113.9"},
+		},
+		{
+			ContainerID:     "bbbbbbbbbbbb",
+			ContainerName:   "db",
+			Image:           "postgres:16",
+			HasPrivateBinding: true,
+			PrivateBindingIPs: []string{"10.0.0.5"},
+		},
+		{
+			ContainerID:    "cccccccccccc",
+			ContainerName:  "local",
+			Image:          "redis:7",
+			HasLocalBinding: true,
+			LocalBindingIPs: []string{"127.0.0.1"},
+		},
+		{
+			ContainerID:     "dddddddddddd",
+			ContainerName:   "hidden",
+			Image:           "secret:1",
+			UpdateAvailable: true,
+			HasPublicBinding: true,
+			PublicBindingIPs: []string{"0.0.0.0"},
+		},
+	}
+	// Duplicate card must not double-count.
+	cards = append(cards, cards[0])
+
+	unhealthy := []dockerContainer{
+		{ID: "aaaaaaaaaaaaffff", Names: []string{"/web"}, Image: "nginx:1", State: "running"},
+		{ID: "ffffffffffff0000", Names: []string{"/gone"}, Image: "gone:1", State: "exited"},
+	}
+
+	issues, warnings, complete := collectContainerIssues(cards, unhealthy, nil, []string{"hidden"})
+	if !complete {
+		t.Errorf("complete = false with a healthy health input")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+
+	// web: update + exposure + unhealthy = 3; db/local: none; hidden: excluded; gone: not shown.
+	if len(issues) != 3 {
+		t.Fatalf("got %d issues (%+v), want 3", len(issues), issues)
+	}
+	if iss := findIssue(issues, categoryUpdate, "aaaaaaaaaaaa"); iss == nil || iss.Severity != severityWarning {
+		t.Errorf("missing update issue for web: %+v", iss)
+	}
+	if iss := findIssue(issues, categoryExposure, "aaaaaaaaaaaa"); iss == nil {
+		t.Error("missing exposure issue for web")
+	} else if !strings.Contains(iss.Detail, "0.0.0.0") || !strings.Contains(iss.Detail, "203.0.113.9") {
+		t.Errorf("exposure detail does not list sorted IPs: %q", iss.Detail)
+	}
+	if iss := findIssue(issues, categoryHealth, "aaaaaaaaaaaa"); iss == nil || iss.Severity != severityError {
+		t.Errorf("missing unhealthy issue for web: %+v", iss)
+	}
+	for _, id := range []string{"bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd"} {
+		for _, iss := range issues {
+			if iss.ContainerID == id {
+				t.Errorf("container %s should not produce an issue: %+v", id, iss)
+			}
+		}
+	}
+	for _, iss := range issues {
+		if iss.ContainerID == "ffffffffffff" {
+			t.Errorf("hidden/exited container produced an issue: %+v", iss)
+		}
+	}
+}
+
+func TestCollectContainerIssuesDeduplicates(t *testing.T) {
+	card := containerCard{ContainerID: "aaaaaaaaaaaa", ContainerName: "web", Image: "nginx:1", UpdateAvailable: true}
+	issues, _, _ := collectContainerIssues([]containerCard{card, card}, nil, nil, nil)
+	if len(issues) != 1 {
+		t.Errorf("got %d issues, want 1", len(issues))
+	}
+}
+
+func TestCollectContainerIssuesHealthUnavailable(t *testing.T) {
+	card := containerCard{ContainerID: "aaaaaaaaaaaa", ContainerName: "web", Image: "nginx:1", UpdateAvailable: true}
+	issues, warnings, complete := collectContainerIssues([]containerCard{card}, nil, errTest("docker unavailable"), nil)
+	if complete {
+		t.Error("complete = true when the health list failed")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "container health") {
+		t.Errorf("warnings = %v", warnings)
+	}
+	if len(issues) != 1 {
+		t.Errorf("health failure suppressed the available update issue: %+v", issues)
+	}
+}
+
+type errTest string
+
+func (e errTest) Error() string { return string(e) }
+
+func TestCollectTraefikIssuesNotDetected(t *testing.T) {
+	issues, warnings, complete := collectTraefikIssues(false, nil, "")
+	if len(issues) != 0 || len(warnings) != 0 || !complete {
+		t.Errorf("no-Traefik state produced issues=%v warnings=%v complete=%v", issues, warnings, complete)
+	}
+}
+
+func TestCollectTraefikIssuesUnreachable(t *testing.T) {
+	data := &traefikDashboardData{EndpointErrors: map[string]string{}}
+	for _, name := range traefikEndpointNames {
+		data.EndpointErrors[name] = "connection refused"
+	}
+	issues, warnings, complete := collectTraefikIssues(true, data, "API unreachable at http://traefik:8080: connection refused")
+	if complete {
+		t.Error("complete = true for an unreachable API")
+	}
+	if len(issues) != 1 || issues[0].Severity != severityError || issues[0].Category != categoryTraefikAPI {
+		t.Fatalf("issues = %+v, want one traefik-api error", issues)
+	}
+	if len(warnings) != 1 {
+		t.Errorf("warnings = %v", warnings)
+	}
+}
+
+func TestCollectTraefikIssuesPartialEndpointErrors(t *testing.T) {
+	data := &traefikDashboardData{
+		EndpointErrors: map[string]string{"tlsCerts": "timeout"},
+	}
+	issues, _, complete := collectTraefikIssues(true, data, "")
+	if complete {
+		t.Error("complete = true with a partial endpoint failure")
+	}
+	if len(issues) != 1 || issues[0].Severity != severityWarning {
+		t.Fatalf("issues = %+v, want one warning", issues)
+	}
+}
+
+func TestCollectTraefikIssuesNotConfiguredIsNotAFinding(t *testing.T) {
+	data := &traefikDashboardData{NotConfigured: []string{"tlsCerts"}}
+	issues, warnings, complete := collectTraefikIssues(true, data, "")
+	if len(issues) != 0 || len(warnings) != 0 || !complete {
+		t.Errorf("not-configured endpoint produced issues=%v warnings=%v complete=%v", issues, warnings, complete)
+	}
+}
+
+func TestCollectTraefikIssuesUnsupportedVersion(t *testing.T) {
+	data := &traefikDashboardData{
+		Version:        &traefikVersion{Version: "v2.11.0"},
+		MajorVersion:   2,
+		VersionSupported: false,
+	}
+	issues, _, complete := collectTraefikIssues(true, data, "")
+	if !complete {
+		t.Error("complete = false for a supported-API host running an unsupported version")
+	}
+	if len(issues) != 1 || issues[0].Category != categoryTraefikVersion || issues[0].Severity != severityWarning {
+		t.Fatalf("issues = %+v, want one traefik-version warning", issues)
+	}
+}
+
+func TestCollectTraefikIssuesEntitiesAndBackends(t *testing.T) {
+	data := &traefikDashboardData{
+		Version:          &traefikVersion{Version: "v3.7.13"},
+		VersionSupported: true,
+		MajorVersion:     3,
+		HTTPRouters: []traefikRouter{
+			{Name: "enabled", Status: "enabled"},
+			{Name: "off", Status: "disabled"},
+			{Name: "broken", Status: "error"},
+		},
+		HTTPServices: []traefikService{
+			{Name: "web", Status: "warning", ServerStatus: map[string]string{
+				"http://10.0.0.2:80": "UP",
+				"http://10.0.0.3:80": "DOWN",
+			}},
+		},
+		Middlewares: []traefikMiddleware{{Name: "auth", Status: "disabled"}},
+	}
+
+	issues, warnings, complete := collectTraefikIssues(true, data, "")
+	if !complete || len(warnings) != 0 {
+		t.Errorf("healthy API produced warnings=%v complete=%v", warnings, complete)
+	}
+	// off, broken, web(warning), auth disabled, DOWN backend.
+	if len(issues) != 5 {
+		t.Fatalf("got %d issues (%+v), want 5", len(issues), issues)
+	}
+
+	byTitle := map[string]hostIssue{}
+	for _, iss := range issues {
+		byTitle[iss.Title] = iss
+	}
+	if got, ok := byTitle["Traefik HTTP router is disabled"]; !ok || got.Severity != severityWarning {
+		t.Errorf("missing disabled router warning: %+v", got)
+	}
+	if got, ok := byTitle["Traefik HTTP router is error"]; !ok || got.Severity != severityError {
+		t.Errorf("missing error router finding: %+v", got)
+	}
+	if got, ok := byTitle["Traefik middleware is disabled"]; !ok || got.Severity != severityWarning {
+		t.Errorf("missing disabled middleware warning: %+v", got)
+	}
+	if got, ok := byTitle["Traefik backend is down"]; !ok || got.Severity != severityError {
+		t.Errorf("missing backend-down finding: %+v", got)
+	}
+	enabledID := newIssueID(categoryTraefikEntity, "traefik", "http-router/enabled")
+	for _, iss := range issues {
+		if iss.ID == enabledID {
+			t.Errorf("enabled entity produced a finding: %+v", iss)
+		}
+	}
+}
+
+func TestCollectDockerVersionIssue(t *testing.T) {
+	checked := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+
+	issues, coverage := collectDockerVersionIssue(dockerVersionResponse{Version: "20.10.24-ce"}, nil, "v27.3.1", checked, "")
+	if len(issues) != 1 || issues[0].Category != categoryDockerVersion {
+		t.Fatalf("issues = %+v, want one docker-version finding", issues)
+	}
+	if !coverage.Checked || coverage.LastCheckedAt == nil || !coverage.LastCheckedAt.Equal(checked) {
+		t.Errorf("coverage = %+v", coverage)
+	}
+	if !strings.Contains(issues[0].Detail, "may intentionally lag upstream") {
+		t.Errorf("detail lacks the distro caveat: %q", issues[0].Detail)
+	}
+
+	for _, tt := range []struct {
+		name    string
+		daemon  string
+		latest  string
+		want    int
+	}{
+		{name: "equal", daemon: "27.3.1", latest: "v27.3.1", want: 0},
+		{name: "newer", daemon: "27.4.0", latest: "v27.3.1", want: 0},
+		{name: "prerelease daemon", daemon: "27.3.1-rc1", latest: "v27.3.1", want: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := collectDockerVersionIssue(dockerVersionResponse{Version: tt.daemon}, nil, tt.latest, checked, "")
+			if len(got) != tt.want {
+				t.Errorf("got %d issues, want %d: %+v", len(got), tt.want, got)
+			}
+		})
+	}
+
+	got, cov := collectDockerVersionIssue(dockerVersionResponse{}, errTest("socket down"), "v27.3.1", checked, "")
+	if len(got) != 0 || cov.Checked || cov.Error == "" {
+		t.Errorf("daemon failure produced issues=%+v coverage=%+v", got, cov)
+	}
+
+	got, cov = collectDockerVersionIssue(dockerVersionResponse{Version: "27.3.1"}, nil, "", time.Time{}, "status 500")
+	if len(got) != 0 || cov.Checked || !strings.Contains(cov.Error, "status 500") {
+		t.Errorf("missing release data produced issues=%+v coverage=%+v", got, cov)
+	}
+}

@@ -298,3 +298,35 @@ func TestFetchTraefikDashboardClassifies404(t *testing.T) {
 		t.Fatalf("version should decode, got %+v", d.Version)
 	}
 }
+
+// TestTraefikStateFeedsIssues verifies that the mutex-protected snapshot the
+// HTTP handler uses is the same input the issue collector sees.
+func TestTraefikStateFeedsIssues(t *testing.T) {
+	traefikMu.Lock()
+	origFound, origURL, origData, origErr := traefikContainerFound, traefikAPIURL, traefikData, traefikDataErr
+	traefikContainerFound = true
+	traefikAPIURL = "http://traefik:8080"
+	traefikData = &traefikDashboardData{
+		Version:          &traefikVersion{Version: "v3.7.13"},
+		VersionSupported: true,
+		MajorVersion:     3,
+		HTTPRouters:      []traefikRouter{{Name: "off", Status: "disabled"}},
+	}
+	traefikDataErr = ""
+	traefikMu.Unlock()
+
+	defer func() {
+		traefikMu.Lock()
+		traefikContainerFound, traefikAPIURL, traefikData, traefikDataErr = origFound, origURL, origData, origErr
+		traefikMu.Unlock()
+	}()
+
+	found, _, data, errStr := getTraefikState()
+	issues, _, complete := collectTraefikIssues(found, data, errStr)
+	if !complete {
+		t.Fatal("a healthy snapshot was reported as incomplete")
+	}
+	if len(issues) != 1 || issues[0].Category != categoryTraefikEntity {
+		t.Fatalf("issues = %+v, want one traefik-entity finding", issues)
+	}
+}
