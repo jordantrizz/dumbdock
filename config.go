@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -198,6 +199,58 @@ func updateCheckEnabled(cfg *overrideConfig) bool {
 		return *cfg.UpdateCheck
 	}
 	return true
+}
+
+// stateDir returns the directory holding dumbdock's persisted runtime state
+// (currently the issue acknowledgements). DUMBDOCK_STATE_DIR overrides it;
+// otherwise /data is used, which the Compose file mounts as a named volume.
+func stateDir() string {
+	if p := strings.TrimSpace(os.Getenv("DUMBDOCK_STATE_DIR")); p != "" {
+		return p
+	}
+	return "/data"
+}
+
+// validateStateDir reports an advisory problem with the state directory. It
+// never creates anything; the store creates the directory when it first needs
+// to write.
+func validateStateDir(dir string) string {
+	if strings.TrimSpace(dir) == "" {
+		return "empty path; issue acknowledgements will not persist"
+	}
+	info, err := os.Stat(dir)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Sprintf("%q is not a directory; issue acknowledgements will not persist", dir)
+		}
+		if info.Mode().Perm()&0o200 == 0 {
+			return fmt.Sprintf("%q is not writable by its owner; issue acknowledgements may not persist", dir)
+		}
+		return ""
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Sprintf("%q: %v; issue acknowledgements may not persist", dir, err)
+	}
+	// The directory does not exist yet. Check the nearest existing ancestor so a
+	// read-only parent is reported instead of failing at the first write.
+	parent := filepath.Dir(strings.TrimRight(dir, string(os.PathSeparator)))
+	for parent != "" && parent != "." && parent != string(os.PathSeparator) {
+		if pi, statErr := os.Stat(parent); statErr == nil {
+			if !pi.IsDir() {
+				return fmt.Sprintf("parent %q of %q is not a directory; issue acknowledgements will not persist", parent, dir)
+			}
+			if pi.Mode().Perm()&0o200 == 0 {
+				return fmt.Sprintf("parent %q of %q is not writable; issue acknowledgements may not persist", parent, dir)
+			}
+			return ""
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			break
+		}
+		parent = next
+	}
+	return ""
 }
 
 // updateCheckInterval returns how long a successful update check is cached

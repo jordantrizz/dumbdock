@@ -15,6 +15,9 @@ services:
       # generated and logged. See README "Authentication".
       - DUMBDOCK_AUTH_MODE=${DUMBDOCK_AUTH_MODE:-web-auth}
       - DUMBDOCK_PASSWORD=${DUMBDOCK_PASSWORD:-} # enables auth for the http-auth/web-auth modes
+      # Persistent runtime state (issue acknowledgements). Keep the volume across
+      # upgrades so acknowledgements survive a restart.
+      - DUMBDOCK_STATE_DIR=/data
       # - AUTO_DETECTION=true                            # enable/disable auto-detection
       # - AUTODETECT_GROUP_NAME=Auto Detected            # name for the auto-detected group
       # - AUTO_DETECTION_SERVICE_BLACKLIST=server,db,app # skip service-name-based icon matching for generic names
@@ -28,6 +31,7 @@ services:
       # - ALERT_COOLDOWN=5m                              # min time between alerts
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dumbdock-data:/data # issue acknowledgements (mode 0600 inside the volume)
       # - ./dumbdock.json:/config/dumbdock.json:ro     # override config (supports iconSets)
       # - ./my-icons/:/config/my-icons/:ro             # local icon index files
     healthcheck:
@@ -39,6 +43,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  dumbdock-data:
 
 # Dependency grouping: dumbdock reads the com.docker.compose.depends_on label
 # that Compose sets automatically. In the dashboard, switch the nav toggle to

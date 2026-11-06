@@ -5,3 +5,5 @@ docker-compose.override.yml
 .env
 .env.bak
 /plans
+# Local agent run logs (container traceability), never committed.
+.opencode/

@@ -586,6 +586,7 @@ func main() {
 		ServiceBlacklist:   autoDetectionServiceBlacklist(cfg),
 		ContainerBlacklist: containerBlacklist(cfg),
 		IconSetNames:       iconSetNames(),
+		StateDir:           stateDir(),
 		DashboardURL:       alerts.cfg.ContainerURL,
 		NtfyTopic:          alerts.cfg.NtfyTopic,
 		GotifyURL:          alerts.cfg.GotifyURL,

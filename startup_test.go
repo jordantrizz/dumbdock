@@ -38,6 +38,7 @@ func TestLogStartupConfig(t *testing.T) {
 		ServiceBlacklist:   []string{"server", "db"},
 		ContainerBlacklist: []string{"traefik"},
 		IconSetNames:       []string{"selfhst", "dashboard-icons"},
+		StateDir:           "/data",
 		DashboardURL:       "https://dumbdock.example.com",
 		NtfyTopic:          "mytopic",
 		GotifyURL:          "https://gotify.example.com",
@@ -58,6 +59,7 @@ func TestLogStartupConfig(t *testing.T) {
 		"gotify token: (set)",
 		"traefik api token: (set)",
 		"traefik api pass: (set)",
+		"issues state dir: /data",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)

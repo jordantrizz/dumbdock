@@ -77,6 +77,13 @@ func validateConfig(cfg *overrideConfig, loadErr error, authMode string) []confi
 		}
 	}
 
+	if msg := validateStateDir(stateDir()); msg != "" {
+		warnings = append(warnings, configWarning{
+			Field:   "DUMBDOCK_STATE_DIR",
+			Message: msg,
+		})
+	}
+
 	if cfg != nil {
 		for i, is := range cfg.IconSets {
 			field := fmt.Sprintf("iconSets[%d]", i)
@@ -153,6 +160,7 @@ type startupConfig struct {
 	ServiceBlacklist   []string
 	ContainerBlacklist []string
 	IconSetNames       []string
+	StateDir           string
 	DashboardURL       string
 	NtfyTopic          string
 	GotifyURL          string
@@ -179,6 +187,7 @@ func logStartupConfig(s startupConfig) {
 	log.Printf("  auto-detection: %t (group %q, service blacklist: %s)", s.AutoDetection, s.AutoDetectedGroup, listOrNone(s.ServiceBlacklist))
 	log.Printf("  container blacklist: %s", listOrNone(s.ContainerBlacklist))
 	log.Printf("  icon sets: %s", listOrNone(s.IconSetNames))
+	log.Printf("  issues state dir: %s", valueOrNone(s.StateDir))
 	log.Printf("  dashboard url: %s", valueOrNone(s.DashboardURL))
 	log.Printf("  ntfy topic: %s", valueOrNone(s.NtfyTopic))
 	log.Printf("  gotify url: %s", valueOrNone(s.GotifyURL))
