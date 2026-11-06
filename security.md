@@ -408,7 +408,7 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 |-----------|-------|
 | **File(s)** | `index.html` |
 
-**Description:** The dashboard is read-only (no POST/PUT/DELETE endpoints), so there is no state-changing action to forge. However, the absence of SameSite cookie handling or CSRF tokens means that if write endpoints are ever added, CSRF protection would need to be retrofitted.
+**Description:** The dashboard was read-only at the time of this review (no POST/PUT/DELETE endpoints), so there was no state-changing action to forge. The absence of SameSite cookie handling or CSRF tokens meant that if write endpoints were ever added, CSRF protection would need to be retrofitted. **Superseded 2026-11-06:** the Issues acknowledgement endpoints add that protection — see the [addendum](#2026-11-06-addendum--issues-workflow-state-changing-endpoints).
 
 **Impact:** Currently none — purely a forward-looking finding.
 
@@ -519,6 +519,47 @@ function sanitizeIconUrl(url) {
 
 ---
 
+## 2026-11-06 Addendum — Issues workflow (state-changing endpoints)
+
+The Issues tab adds the first write endpoints to dumbdock. This addendum supersedes the
+"read-only / no write endpoints" statements in **L-05** and **Positive Observation 6**.
+
+| Attribute | Value |
+|-----------|-------|
+| **File(s)** | `issues.go`, `main.go`, `index.html`, `docker_version.go` |
+| **Endpoints** | `GET /api/issues`, `POST /api/issues/{id}/acknowledge`, `DELETE /api/issues/{id}/acknowledge` |
+
+**Controls:**
+
+1. **Authentication.** All three routes are registered on the same mux wrapped by the active
+   `http-auth` / `web-auth` middleware. `none` mode leaves them open by explicit operator choice.
+2. **CSRF.** The mutations require the non-simple header `X-Dumbdock-Request: issues`. A
+   cross-origin HTML form cannot set a custom header, and dumbdock adds no CORS headers, so a
+   forged simple request is rejected with `403`. The session cookie remains `SameSite=Lax`.
+3. **Input surface.** The only input is a server-issued 64-character lowercase hex issue ID, and
+   the handler rejects anything else with `400` before touching state. No path, filename,
+   container name, or free-form text is accepted, so the endpoints cannot be used for path
+   traversal or arbitrary file writes.
+4. **Persistence.** Acknowledgements are stored in `<DUMBDOCK_STATE_DIR>/issues-acknowledged.json`
+   (default `/data`), written with a same-directory temporary file, `fsync`, atomic `rename`, and
+   mode `0600`. Reads are capped at 1 MiB and malformed state is discarded with a startup warning.
+   A failed write returns `500` and leaves the published snapshot unchanged.
+5. **Data exposure.** The response carries category, severity, title, detail, source, an optional
+   container id/name, timestamps, and coverage metadata. It carries **no Docker labels**, no
+   registry tokens, no Traefik credentials, and **no container or application log text** — the
+   Issues feature does not read logs at all.
+6. **Outbound call.** The Docker Engine comparison is the second third-party fetch (after the
+   image update checker): 10s timeout, 1 MiB body cap, `User-Agent: dumbdock/<version>`, no
+   credentials, 24-hour success cache, and the last successful value retained on failure.
+7. **No host mutation.** The feature never pulls, restarts, upgrades, or reconfigures anything;
+   acknowledgement state is dumbdock's own bookkeeping.
+
+**Residual risk:** an authenticated user can hide a finding from the count without resolving it.
+The Acknowledged section keeps it visible, and it becomes active again after a complete
+collection proves it gone — the acknowledgement is not a permanent suppression.
+
+---
+
 ## ✅ Positive Observations
 
 Not everything is a finding — dumbdock does several things right from a security perspective:
@@ -533,7 +574,7 @@ Not everything is a finding — dumbdock does several things right from a securi
 
 5. **No dynamic HTML generation on the server.** All HTML is either embedded via `//go:embed` (static `index.html`) or served as JSON API responses. There are no server-side template injections.
 
-6. **No write endpoints.** The API is entirely read-only (GET only), eliminating CSRF, SSRF-to-write, and injection attack surfaces on the server side.
+6. **No write endpoints at the time of review.** The API was entirely read-only (GET only), eliminating CSRF, SSRF-to-write, and injection attack surfaces on the server side. **Superseded 2026-11-06:** the authenticated acknowledgement endpoints are documented in the [addendum](#2026-11-06-addendum--issues-workflow-state-changing-endpoints).
 
 7. **Configurable listen address.** The `LISTEN_ADDR` env var allows operators to bind to specific interfaces (default `:8080` could be tightened to `127.0.0.1:8080`).
 

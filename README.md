@@ -15,7 +15,7 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Smart icon resolution** — automatically detects icons for unlabeled containers from [selfhst/icons](https://github.com/selfhst/icons), [dashboard-icons](https://github.com/homarr-labs/dashboard-icons), or any configured icon set based on the image name. Matched containers get their own group (default: "Auto Detected") so they don't clutter the "Unlabeled" section. Falls back to a generic placeholder when no specific match is found.
 - **Dumbdock branding** — a built-in SVG icon (`/dumbdock.svg`) serves as favicon, nav bar logo, and auto-detection icon for dumbdock containers themselves.
 - **Grouped card layout** — labeled containers appear in organized groups with responsive cards showing icon, name, description, link, and status.
-- **Dependency grouping** — a third view groups containers under the container(s) they depend on, read automatically from the Docker Compose `com.docker.compose.depends_on` label (no `dumbdock.*` label needed). The dashboard toggle cycles **By Group → By Compose → By Dependency**.
+- **Dependency grouping** — a third view groups containers under the container(s) they depend on, read automatically from the Docker Compose `com.docker.compose.depends_on` label (no `dumbdock.*` label needed). The dashboard toggle cycles **By Group → By Compose → By Dependency** and is only shown on the Dashboard tab.
 - **Unlabeled container section** — containers without `dumbdock.*` labels appear in an expandable list that shows current labels, container info, and copy-paste-ready examples for labeling via docker-compose or `dumbdock.json`.
 - **Config file overrides** — optionally define names, groups, icons, etc. in a JSON config file instead of (or in addition to) Docker labels.
 - **Alert notifications** — get notified via [ntfy.sh](https://ntfy.sh) or [Gotify](https://gotify.net) when new unlabeled containers are detected, with configurable cooldown.
@@ -24,9 +24,10 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Image update checks** — a background checker compares each running container's local image digest against the digest currently served by Docker Hub or GHCR and flags containers whose tag has moved with an `⬆ update available` badge (unsupported/local images show a neutral `? update unknown`). See [Image Update Checks](#image-update-checks).
 - **Dashboard scoreboard** — a clickable summary above the legend counts containers with image updates, private port bindings, localhost port bindings, and Traefik enabled; clicking a tile filters the dashboard to the matching containers. See [Dashboard Scoreboard](#dashboard-scoreboard).
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
+- **Issues tab** — a dedicated tab beside Traefik that lists every actionable problem dumbdock can prove from the Docker and Traefik APIs: publicly bound ports, available image updates, containers Docker reports as `unhealthy`, Traefik API/entity/backend failures, unsupported Traefik versions, and an outdated Docker Engine. The tab carries a live count badge, supports acknowledging a finding until it resolves, and never repairs or mutates the host. See [Issues Tab](#issues-tab).
 - **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
-- **Help tab** — an always-visible **Help** tab (after Traefik) with static getting-started guides. The first guide, **Configure Traefik API Access**, walks through enabling Traefik's read-only API (insecure entrypoint or secured `api@internal`), configuring auth for dumbdock, verifying with `curl /api/version`, and troubleshooting the errors the Traefik tab surfaces. See [Help Tab](#help-tab).
-- **Persistent tabs** — the selected tab is kept in the URL fragment (`#networking`, `#traefik`, …), so a browser refresh (Ctrl+R) leaves you on the same tab, and any tab can be bookmarked or shared. See [Tab Persistence](#tab-persistence).
+- **Help tab** — an always-visible **Help** tab (after Icons) with static getting-started guides. The first guide, **Configure Traefik API Access**, walks through enabling Traefik's read-only API (insecure entrypoint or secured `api@internal`), configuring auth for dumbdock, verifying with `curl /api/version`, and troubleshooting the errors the Traefik tab surfaces. See [Help Tab](#help-tab).
+- **Persistent tabs** — the selected tab is kept in the URL fragment (`#networking`, `#traefik`, `#issues`, …), so a browser refresh (Ctrl+R) leaves you on the same tab, and any tab can be bookmarked or shared. See [Tab Persistence](#tab-persistence).
 - **Tiny footprint** — multi-stage Docker build produces a ~10 MB static binary running from `alpine:3.20` (a minimal image with `wget`, used by the container healthcheck).
 - **Container healthcheck** — the Compose stack ships a `healthcheck` that confirms the app is listening on its port (a TCP connect, no HTTP route or auth involved), so `docker compose ps` / `docker inspect` report the container as `healthy`. See [Container Healthcheck](#container-healthcheck).
 - **Cache-aware HTTP headers** — serves the dashboard HTML with `ETag` and `Cache-Control: no-cache` headers, and API responses with `Cache-Control: no-cache`. The ETag is derived from a build-time version string (Git SHA + timestamp) injected via ldflags, enabling browsers to revalidate efficiently with `304 Not Modified`. Version defaults to `"dev"` for local builds; Docker builds automatically get a version tag.
@@ -252,7 +253,7 @@ Behavior notes:
 - **Direct dependencies only** — grouping uses the immediate `depends_on` targets; there is no transitive resolution (a container that depends on `api`, which itself depends on `db`, is grouped under `api`, not `db`).
 - **Multiple dependencies** — a container that depends on several services appears in each of those dependency groups.
 - **No resolvable dependency** — containers with no `depends_on` label, or whose dependency service isn't running, go under a `Standalone` group.
-- **Toggle** — the button in the nav bar cycles **By Group → By Compose → By Dependency → By Group**. Your choice is remembered across page loads.
+- **Toggle** — the button in the nav bar cycles **By Group → By Compose → By Dependency → By Group**. Your choice is remembered across page loads. The toggle is only shown on the Dashboard tab, because it affects only the container grid.
 
 ## Traefik Dashboard
 
@@ -311,9 +312,59 @@ The auth header is added server-side only — credentials never reach the browse
 
 > **Note:** The Traefik tab is always visible in the navigation bar (see above); when a running container with "traefik" in its image name is detected it shows the status dashboard, otherwise it shows install guidance.
 
+## Issues Tab
+
+The **Issues** tab sits between **Traefik** and **Icons** and lists every actionable problem dumbdock can prove from the Docker and Traefik APIs. The navigation button carries a count badge for unacknowledged findings, refreshed on every poll after authentication.
+
+### What is checked
+
+| Category | Severity | Finding |
+|----------|----------|---------|
+| Container health | `error` | Docker reports the container's health status as `unhealthy` (via the daemon's `health=unhealthy` filter, never inferred from the `Status` text) |
+| Port exposure | `warning` | A published port is bound to a non-localhost address (for example `0.0.0.0` or a public IP) |
+| Image updates | `warning` | The background registry check found a newer digest for the running tag |
+| Traefik API | `error` / `warning` | Every Traefik API endpoint failed (unreachable), or one endpoint returned an error |
+| Traefik version | `warning` | The detected major version is not 3 |
+| Traefik entities | `error` / `warning` | A router, service, or middleware reports status `error` (error), `disabled`, or `warning` (warning) |
+| Traefik backends | `error` | A load-balancer server reports `DOWN` |
+| Docker Engine | `warning` | The daemon version is older than the latest stable Moby release (advisory) |
+
+### What is deliberately not a finding
+
+- Containers hidden by `CONTAINER_BLACKLIST` / `containerBlacklist`.
+- Stopped, paused, exited, and restarting containers; only currently listed containers are evaluated.
+- Containers without a healthcheck, and containers whose health is still `starting`.
+- Image update states `unknown` and `error` (shown on cards, but not issues).
+- Ports bound to `127.0.0.1`, `::1`, or a private address.
+- A missing Traefik container (that is install guidance on the Traefik tab).
+- Traefik endpoints that return 404 / "not configured" (for example no TLS certificates).
+- Raw container logs — dumbdock does not read log output for this feature.
+
+### Counts and ordering
+
+One row is one finding, and the badge equals the number of **active** (unacknowledged) rows. A container can produce more than one row: an unhealthy container whose image also has an update is two findings. Rows are ordered by severity (`error` first), then category, then title.
+
+### Acknowledging a finding
+
+Each active row has an **Acknowledge** button. Acknowledging removes the finding from the count and moves it to the **Acknowledged** section, where it can be restored with **Unacknowledge**.
+
+- Acknowledgements are stored server-side so every browser sees the same state, and they survive a restart when the `/data` volume is kept.
+- An acknowledgement is automatically dropped once a **complete** collection confirms the finding is gone. The next recurrence is active again.
+- If a collection pass is incomplete (Docker health list unavailable, or a Traefik endpoint failed), dumbdock keeps existing acknowledgements and labels the page as **partial** rather than assuming the finding resolved.
+
+### Docker Engine version comparison
+
+dumbdock reads the daemon version from `GET /version` and, at most once every 24 hours, the latest stable `moby/moby` GitHub release. If the daemon is older, a warning appears. The comparison is advisory: distribution packages and managed container hosts may intentionally pin an older Docker Engine, so verify before upgrading. When the comparison is unavailable, the page reports it as coverage metadata rather than inventing a finding.
+
+### Coverage and refresh
+
+The full snapshot is rebuilt in the background poll; the Issues page itself only reads a cached snapshot from `/api/issues`, so it never blocks on Docker or GitHub. The badge refreshes every 10 seconds; the page re-renders only while it is the visible tab. The **Collection** line and any warning banner state whether all inputs were checked.
+
+> **Read-only:** the Issues tab never pulls images, restarts containers, changes port bindings, upgrades Docker, or edits Traefik. Acknowledging a finding changes only dumbdock's own state file.
+
 ## Help Tab
 
-The **Help** tab is always visible in the navigation bar, immediately after **Traefik**. It contains static getting-started guides served as plain HTML — there is no data fetch or background refresh, so the page renders instantly.
+The **Help** tab is always visible in the navigation bar, immediately after **Icons**. It contains static getting-started guides served as plain HTML — there is no data fetch or background refresh, so the page renders instantly.
 
 The first guide is **Configure Traefik API Access**, which covers:
 
@@ -333,9 +384,12 @@ The active tab is reflected in the URL fragment, so a **refresh (Ctrl+R) keeps y
 |-----|-----|
 | Dashboard | `/#dashboard` |
 | Networking | `/#networking` |
-| Icons | `/#icons` |
 | Traefik | `/#traefik` |
+| Issues | `/#issues` |
+| Icons | `/#icons` |
 | Help | `/#help` |
+
+The navigation order is Dashboard, Networking, Traefik, Issues, Icons, Help. The **By Compose / By Dependency** grouping toggle and **Copy JSON** control exist only on the Dashboard; switching tabs hides them without changing the saved grouping mode.
 
 Clicking a tab updates the fragment, which makes each tab **bookmarkable/shareable** and lets the browser **back/forward buttons** move between visited tabs. On load, the tab named by the fragment is restored immediately (its data is fetched after the auth check resolves, so no requests are made before login).
 
@@ -416,6 +470,7 @@ DUMBDOCK_PORT=8080
 | `DUMBDOCK_UPDATE_INTERVAL` | `6h` | How long a successful update check is cached before the image tag is re-checked. |
 | `DUMBDOCK_PASSWORD` | *(empty)* | Password for dashboard auth. With `DUMBDOCK_AUTH_MODE=http-auth` it enables HTTP Basic Authentication (any username accepted); with `web-auth` it is the login-form password. When an auth mode is active and this is empty, a random password is generated and logged once for the run. Auto-generated by `./control.sh setup`. |
 | `DUMBDOCK_AUTH_MODE` | `web-auth` | Authentication mode: `none`, `http-auth`, or `web-auth` (see [Authentication](#authentication)). Overrides `authMode` in `dumbdock.json`. Defaults to `web-auth`; set to `none` to disable auth. |
+| `DUMBDOCK_STATE_DIR` | `/data` | Directory for persisted runtime state — currently `issues-acknowledged.json` (mode `0600`). The Compose file mounts this as the `dumbdock-data` named volume so acknowledgements survive a restart. |
 | `TRAEFIK_API_URL` | *(empty)* | Explicit Traefik API base URL. Overrides auto-discovery. |
 | `TRAEFIK_API_TOKEN` | *(empty)* | Bearer token for Traefik API authentication (sent as `Authorization: Bearer <token>`). Also accepted via `traefikAPIToken` in the config file. |
 | `TRAEFIK_API_USER` | *(empty)* | Username for Traefik Basic auth (use with `TRAEFIK_API_PASS`). |
@@ -551,6 +606,8 @@ dumbdock can flag containers whose running image tag has moved upstream. A backg
 
 Disable the feature with `DUMBDOCK_UPDATE_CHECK=false` or `"updateCheck": false` in `dumbdock.json`.
 
+Containers with an available update also appear as findings on the [Issues tab](#issues-tab); `unknown` and `error` statuses are intentionally not issues.
+
 ## Dashboard Scoreboard
 
 The dashboard shows a clickable scoreboard directly above the legend, summarizing the current container set:
@@ -609,6 +666,57 @@ Returns Traefik detection and status data:
 
 When no Traefik container is found, `found` is `false` and `data` is `null`.
 
+**`GET /api/issues`**
+
+Returns the cached host-issue snapshot. The endpoint never calls Docker or GitHub; the poll loop builds the snapshot.
+
+```json
+{
+  "count": 2,
+  "items": [
+    {
+      "id": "<64-char hex>",
+      "category": "container-health",
+      "severity": "error",
+      "title": "Container is unhealthy",
+      "detail": "api (api:1) reports Docker health status \"unhealthy\".",
+      "source": "container",
+      "containerId": "0123456789ab",
+      "containerName": "api",
+      "firstObservedAt": "2026-11-06T12:00:00Z",
+      "lastObservedAt": "2026-11-06T12:00:00Z",
+      "acknowledged": false
+    }
+  ],
+  "acknowledged": [],
+  "coverage": {
+    "collectionComplete": true,
+    "dockerVersion": {"checked": true, "lastCheckedAt": "2026-11-06T00:00:00Z"},
+    "warnings": []
+  },
+  "checkedAt": "2026-11-06T12:00:00Z"
+}
+```
+
+`items` holds active findings and `acknowledged` holds the same record shape with `acknowledged: true` and `acknowledgedAt`. `count` is the number of active findings. The response contains no Docker labels, Traefik credentials, registry tokens, or log text.
+
+**`POST /api/issues/{id}/acknowledge`** and **`DELETE /api/issues/{id}/acknowledge`**
+
+Acknowledge or unacknowledge one finding. Both require the same authentication as the dashboard **and** the non-simple header `X-Dumbdock-Request: issues` (the custom header is a CSRF control that an HTML form cannot set). The body is empty; the success response is the updated `GET /api/issues` payload.
+
+| Status | Meaning |
+|--------|---------|
+| `200` | Updated snapshot returned |
+| `400` | The `{id}` is not a server-issued issue ID |
+| `403` | Missing `X-Dumbdock-Request: issues` |
+| `404` | Unknown or already-resolved issue ID |
+| `500` | The acknowledgement could not be persisted; the published snapshot is unchanged |
+
+```bash
+curl -X POST -H 'X-Dumbdock-Request: issues' \
+  http://127.0.0.1:8080/api/issues/<id>/acknowledge
+```
+
 ### Supported Traefik version
 
 dumbdock requires **Traefik v3**. The detected major version is parsed from `/api/version`, returned as `majorVersion` / `versionSupported`, and:
@@ -659,6 +767,10 @@ go build -o dumbdock .
 ├── icons.go         # Icon set abstraction, index fetching, and resolution
 ├── icons.json       # Default image-name → icon-slug mappings for selfhst set
 ├── traefik.go       # Traefik container detection, Docker inspect, API client
+├── issues.go        # Host issue model, collectors, acknowledgement store and HTTP handlers
+├── issues_test.go   # Unit tests for issue collectors, persistence, handlers
+├── docker_version.go # Cached latest Moby release lookup for the Docker Engine check
+├── docker_version_test.go
 ├── warnings.go      # Port binding and Traefik label parsing
 ├── updates.go       # Image update checks: reference parsing, registry clients, cache
 ├── updates_test.go  # Unit tests for the update checker

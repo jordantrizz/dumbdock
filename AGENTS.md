@@ -119,8 +119,9 @@ Implemented 2026-09-23 (`startup.go`, `startup_test.go`; see README "Startup Log
 
 Implemented 2026-09-17 (`updates.go`, `updates_test.go`; see README "Image Update Checks"):
 
-* The checker is the only component that makes **outbound** network calls to third parties
-  (Docker Hub + GHCR registry APIs). Keep it off the request path: registry I/O runs in its own
+* The checker is one of only two components that make **outbound** network calls to third
+  parties (Docker Hub + GHCR registry APIs, and the Docker Engine release check in
+  `docker_version.go`). Keep it off the request path: registry I/O runs in its own
   goroutine and `refresh()` only reads the TTL cache.
 * Supported registries are Docker Hub (`registry-1.docker.io`) and GHCR (`ghcr.io`), anonymous
   only. Never send credentials, and never log registry tokens. Other registries / local-only
@@ -167,6 +168,48 @@ Implemented 2026-09-23 (`traefik.go`, `traefik_test.go`; see README "Traefik Das
   `key: message` pairs. All interpolated values stay `escapeHtml`-escaped (H-02).
 * No new settings: `startupConfig` / `logStartupConfig` / `validateConfig` are unchanged.
 
+## Issues Tab
+
+Implemented 2026-11-06 (`issues.go`, `docker_version.go`, `docker.go`, `main.go`, `index.html`;
+see README "Issues Tab"):
+
+* **The page is a cache read.** Collectors run in the 10-second poll (after `refreshTraefik`),
+  never on a request. `GET /api/issues` returns the published snapshot only; do not add Docker
+  or GitHub I/O to the handler. The snapshot is replaced wholesale under `issueStore.mu` —
+  readers get a value whose slices are never mutated, and `-race` must stay green.
+* **Categories and exclusions are policy.** One row equals one finding; the badge is the count
+  of unacknowledged active rows. Findings: public/wildcard port bindings, `updateAvailable`,
+  Docker `health=unhealthy`, Traefik API failure/partial endpoint errors, unsupported Traefik
+  major version, `disabled`/`warning`/`error` Traefik entities, `DOWN` backends, and a daemon
+  older than the cached Moby release. Not findings: denylisted containers, stopped/paused/
+  restarting containers, missing healthchecks or `starting` health, update `unknown`/`error`,
+  `127.0.0.1`/`::1`/private bindings, no Traefik container, Traefik 404/not-configured
+  endpoints, and **raw logs** — never add a container log collector to this feature.
+* **Stable opaque IDs.** `newIssueID` hashes category + source + canonical object key. Never
+  derive an ID from a title, timestamp, container label, or request input, and never use an ID
+  as a filesystem path.
+* **Acknowledgements are server state.** `POST`/`DELETE /api/issues/{id}/acknowledge` require
+  the existing auth middleware plus `X-Dumbdock-Request: issues`; they accept only a
+  server-issued 64-char hex ID. Persist before publishing, and leave the snapshot unchanged on
+  a write failure. Prune an acknowledgement only when `collectionComplete` is true and the ID
+  is gone; incomplete collection must retain it (`issues-acknowledged.json`, mode `0600`,
+  same-directory temp file + `rename`). Set `collectionComplete=false` on any Docker health or
+  Traefik endpoint failure.
+* **State dir.** `DUMBDOCK_STATE_DIR` defaults to `/data` and is mounted as the `dumbdock-data`
+  volume in both compose files. It is a non-secret path; it must appear in `startupConfig`,
+  `validateConfig` (advisory only), and `logStartupConfig`.
+* **Docker version check.** `docker_version.go` caches the latest stable `moby/moby` GitHub
+  release for 24h (15m retry after failure), sends `User-Agent: dumbdock/<version>`, bounds the
+  body at 1 MiB, sends no credentials, and keeps the last successful version after a failure.
+  An unavailable comparison is `coverage`, never a finding. The UI and README must keep the
+  distro/package caveat.
+* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Issues, Icons, Help.
+  `TAB_IDS` includes `issues`; `loadIssues()` refreshes the badge on every authenticated poll
+  and renders the page only when it is visible. The Group/Compose/Dependency toggle is shown
+  only on the Dashboard (`setActiveTab`), and its saved mode must survive tab switches. Every
+  interpolated issue/coverage value goes through `escapeHtml` (H-02). Do not fetch before auth
+  resolves and do not reintroduce the old unconditional `loadTraefik()` call.
+
 ## Help Tab
 
 Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
@@ -185,7 +228,7 @@ Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
 Implemented 2026-09-23 (`index.html`; see README "Tab Persistence"):
 
 * The active tab is stored in the URL fragment as a bare `#<tab>` id (`dashboard`, `networking`,
-  `icons`, `traefik`, `help`). Clicking a tab pushes a history entry (`location.hash = tab`), so
+  `traefik`, `issues`, `icons`, `help`). Clicking a tab pushes a history entry (`location.hash = tab`), so
   refresh (Ctrl+R), bookmarks, and back/forward all restore the tab.
 * `tabFromHash(hash, doc)` resolves a fragment: a known tab id maps directly; any other fragment
   maps to the tab whose `page-*` element contains the matching element id (this is how the in-page
