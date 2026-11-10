@@ -277,6 +277,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
     <button class="nav-tab" id="nav-networking" onclick="switchTab('networking')">Networking</button>
     <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
     <button class="nav-tab" id="nav-issues" onclick="switchTab('issues')" aria-label="Issues">Issues<span class="nav-badge" id="issues-count" style="display:none" aria-label="0 active issues">0</span></button>
+    <button class="nav-tab" id="nav-storage" onclick="switchTab('storage')">Storage</button>
     <button class="nav-tab" id="nav-icons" onclick="switchTab('icons')">Icons</button>
     <button class="nav-tab" id="nav-help" onclick="switchTab('help')">Help</button>
   </div>
@@ -326,6 +327,12 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 <div id="page-issues" style="display:none">
   <div id="issues-app">
     <div class="loading">Loading issues...</div>
+  </div>
+</div>
+
+<div id="page-storage" style="display:none">
+  <div id="storage-app">
+    <div class="loading">Loading storage data...</div>
   </div>
 </div>
 
@@ -1057,6 +1064,11 @@ setInterval(function() {
   // when it is the visible tab.
   var issuesPage = document.getElementById('page-issues');
   loadIssues(issuesPage && issuesPage.style.display !== 'none');
+  // Storage is only re-rendered while it is the visible tab.
+  var storagePage = document.getElementById('page-storage');
+  if (storagePage && storagePage.style.display !== 'none') {
+    loadStorage(true);
+  }
   // Only refresh Traefik data if the Traefik tab is currently visible.
   var traefikPage = document.getElementById('page-traefik');
   if (traefikPage && traefikPage.style.display !== 'none') {
@@ -1163,8 +1175,9 @@ function toggleGroupView() {
 // ---- Tab switching ----
 let iconsData = null;
 let issuesData = null;
+let storageData = null;
 // Tab ids that may appear in the URL fragment (#dashboard, #networking, ...).
-var TAB_IDS = ['dashboard', 'networking', 'traefik', 'issues', 'icons', 'help'];
+var TAB_IDS = ['dashboard', 'networking', 'traefik', 'issues', 'storage', 'icons', 'help'];
 // The currently displayed tab; drives refreshActiveTab() and the hashchange guard.
 var currentTab = 'dashboard';
 
@@ -1224,6 +1237,8 @@ function refreshActiveTab() {
     loadTraefik();
   } else if (currentTab === 'issues') {
     loadIssues(true);
+  } else if (currentTab === 'storage') {
+    loadStorage(true);
   } else if (currentTab === 'icons' && !iconsData) {
     loadIcons();
   }
@@ -1549,14 +1564,16 @@ function issueCategoryLabel(category) {
     'traefik-api': 'Traefik API',
     'traefik-version': 'Traefik version',
     'traefik-entity': 'Traefik entities',
-    'traefik-backend': 'Traefik backends'
+    'traefik-backend': 'Traefik backends',
+    'container-storage': 'Storage paths',
+    'container-backup': 'Database backups'
   };
   return labels[category] || String(category || 'other');
 }
 
 // Stable category order, then any unknown category in first-seen order.
 var ISSUE_CATEGORY_ORDER = ['container-health', 'traefik-api', 'traefik-backend', 'traefik-entity',
-  'container-exposure', 'container-update', 'docker-version', 'traefik-version'];
+  'container-backup', 'container-storage', 'container-exposure', 'container-update', 'docker-version', 'traefik-version'];
 
 function groupIssuesByCategory(items) {
   var groups = [];
@@ -1697,6 +1714,200 @@ async function setIssueAcknowledged(btn, id, acknowledged) {
       banner.appendChild(body);
       app.insertBefore(banner, app.firstChild);
     }
+  }
+}
+
+// ===== Storage =====
+
+async function loadStorage(renderPage) {
+  var container = document.getElementById('storage-app');
+  try {
+    var res = await apiFetch('/api/storage');
+    if (!res) return;
+    var data = await res.json();
+    storageData = data;
+    if (renderPage || currentTab === 'storage') renderStorage(data);
+  } catch (e) {
+    if (!renderPage && currentTab !== 'storage') return;
+    if (container) container.innerHTML = '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Failed to load storage data</div><div class="err-detail">' + escapeHtml(e.message) + '</div><button class="err-retry" onclick="loadStorage(true)">Retry</button></div></div>';
+  }
+}
+
+function storageVerdictBadge(verdict) {
+  var map = {
+    ok: ['enabled', 'OK'],
+    stale: ['warning', 'Stale'],
+    missing: ['error', 'Missing'],
+    unverified: ['disabled', 'Unverified'],
+    exempt: ['disabled', 'Exempt']
+  };
+  var m = map[verdict] || ['disabled', String(verdict || 'unknown')];
+  return '<span class="status-badge ' + m[0] + '">' + escapeHtml(m[1]) + '</span>';
+}
+
+function storageDataCell(ds) {
+  var html = '<div>' + escapeHtml(ds.dataKind || '—') + '</div>';
+  var path = ds.dataPath || ds.dataDestination || '';
+  if (path) html += '<div class="issue-detail">' + escapeHtml(path) + '</div>';
+  if (ds.dataPathOk === false) {
+    html += '<div class="issue-detail" style="color:#d29922">Expected: ' + escapeHtml(ds.expectedDataPath || '') + '</div>';
+  }
+  return html;
+}
+
+function storageEvidenceCell(ds) {
+  var list = ds.evidence || [];
+  var newest = null;
+  var failed = null;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].status === 'ok') { newest = list[i]; break; }
+  }
+  for (var j = 0; j < list.length; j++) {
+    if (list[j].status !== 'ok') { failed = list[j]; break; }
+  }
+  var html = '';
+  if (newest) {
+    var t = newest.at ? new Date(newest.at) : null;
+    var age = (t && !isNaN(t.getTime())) ? formatTimestamp(t.getTime() / 1000) : 'unknown';
+    html += '<div>' + escapeHtml(age) + ' · ' + escapeHtml(newest.provider || '') + '</div>';
+    if (newest.artifact) html += '<div class="issue-detail">' + escapeHtml(newest.artifact) + '</div>';
+  } else {
+    html = '<span style="color:#6e7681">No evidence</span>';
+  }
+  if (failed) {
+    html += '<div class="issue-detail" style="color:#d29922">Last report failed' +
+      (failed.at ? ' (' + escapeHtml(formatIssueTime(failed.at)) + ')' : '') + '</div>';
+  }
+  return html;
+}
+
+function renderStorage(data) {
+  var container = document.getElementById('storage-app');
+  if (!container) return;
+
+  var datasets = data.datasets || [];
+  var mounts = data.mounts || [];
+  var coverage = data.coverage || {};
+  var providers = coverage.providers || [];
+  var configured = false;
+  for (var i = 0; i < providers.length; i++) {
+    if (providers[i].configured) configured = true;
+  }
+
+  var html = '<div class="issues-meta">' +
+    '<span>Databases: <strong>' + datasets.length + '</strong></span>' +
+    '<span>Mounts: <strong>' + mounts.length + '</strong></span>' +
+    '<span>Compose root: <strong>' + escapeHtml(coverage.containerRoot || '—') + '</strong></span>' +
+    '<span>Data root: <strong>' + escapeHtml(coverage.dataRoot || '—') + '</strong></span>' +
+    '<span>Backups: <strong>' + escapeHtml(coverage.backupRoot || '—') + '</strong></span>' +
+    (data.checkedAt ? '<span>Checked: ' + formatIssueTime(data.checkedAt) + '</span>' : '') +
+    '<span>Collection: ' + (coverage.collectionComplete === false ? 'partial' : 'complete') + '</span>' +
+    '<button type="button" class="copy-json-btn" id="copy-storage-json-btn" onclick="copyStorageJSON()" title="Copy the storage snapshot as JSON">Copy JSON</button>' +
+    '</div>';
+
+  if (!configured) {
+    html += '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body">' +
+      '<div class="err-title">Backup evidence is not configured</div>' +
+      '<div class="err-detail">dumbdock can see the databases and their data paths, but no backup source is available, so each dataset is <strong>unverified</strong> — that is not the same as unbacked. Mount the data root read-only (<code>- /srv/containers:/srv/containers:ro</code>), label a backup container with <code>dumbdock.backup-for</code>, or set <code>DUMBDOCK_BACKUP_TOKEN</code> and have the backup job POST to <code>/api/backups/report</code>.</div>' +
+      '</div></div>';
+  }
+
+  var providerErrors = providers.filter(function(p) { return p.error && p.configured; });
+  if (providerErrors.length > 0) {
+    html += '<div class="networking-warning-banner"><span class="err-icon">&#9888;</span><div class="err-body">' +
+      '<div class="err-title">Some backup evidence could not be read</div>' +
+      '<div class="err-detail">' + providerErrors.map(function(p) { return escapeHtml(p.name + ': ' + p.error); }).join('<br>') + '</div>' +
+      '</div></div>';
+  }
+
+  html += '<div class="traefik-section"><h2>Databases <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + datasets.length + ')</span></h2>';
+  if (datasets.length === 0) {
+    html += '<div class="traefik-empty">No databases detected. dumbdock recognises PostgreSQL, MySQL, MariaDB, and labeled SQLite workloads on compose-managed containers.</div>';
+  } else {
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr>' +
+      '<th>Project / service</th><th>Engine</th><th>Data</th><th>Policy</th><th>Last backup</th><th>Verdict</th>' +
+      '</tr></thead><tbody>';
+    for (var d of datasets) {
+      var policy = escapeHtml(d.policyMaxAge || '—') + ' <span style="color:#6e7681">(' + escapeHtml(d.policySource || 'default') + ')</span>';
+      if (d.exempt) policy += '<div class="issue-detail">waived</div>';
+      else if (d.required === false) policy += '<div class="issue-detail">not required</div>';
+      html += '<tr>' +
+        '<td><strong>' + escapeHtml(d.key) + '</strong><div class="issue-detail">' + escapeHtml(d.containerName || '') + '</div></td>' +
+        '<td>' + escapeHtml(d.engine || '') + (d.database ? '<div class="issue-detail">' + escapeHtml(d.database) + '</div>' : '') + '</td>' +
+        '<td>' + storageDataCell(d) + '</td>' +
+        '<td>' + policy + '</td>' +
+        '<td>' + storageEvidenceCell(d) + (d.reason ? '<div class="issue-detail">' + escapeHtml(d.reason) + '</div>' : '') + '</td>' +
+        '<td>' + storageVerdictBadge(d.verdict) + '</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table></div>';
+    html += '<div class="issue-detail" style="margin-top:0.6rem">Expected backup location: <code>' + escapeHtml(coverage.backupRoot || '') + '/&lt;project&gt;/&lt;service&gt;/backups/</code></div>';
+  }
+  html += '</div>';
+
+  html += '<div class="traefik-section"><h2>Storage paths <span style="color:#6e7681;font-weight:400;text-transform:none;letter-spacing:0">(' + mounts.length + ')</span></h2>';
+  if (mounts.length === 0) {
+    html += '<div class="traefik-empty">No writable mounts on compose-managed containers.</div>';
+  } else {
+    html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr><th>Container</th><th>Source</th><th>Destination</th><th>Access</th><th>Status</th></tr></thead><tbody>';
+    for (var m of mounts) {
+      html += '<tr>' +
+        '<td><strong>' + escapeHtml(m.containerName || m.service) + '</strong><div class="issue-detail">' + escapeHtml(m.project + '/' + m.service) + '</div></td>' +
+        '<td class="traefik-rule">' + escapeHtml(m.source || '') + '</td>' +
+        '<td><code>' + escapeHtml(m.destination || '') + '</code></td>' +
+        '<td>' + (m.rw ? 'rw' : 'ro') + '</td>' +
+        '<td>' + storageMountStatus(m) + '</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table></div>';
+    html += '<div class="issue-detail" style="margin-top:0.6rem">Config files (matched by extension or /etc/) are not data. Waive a deliberate mount with <code>dumbdock.storage.ignore=&lt;destination&gt;</code> or <code>all</code>.</div>';
+  }
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function storageMountStatus(m) {
+  var labels = { ok: 'OK', config: 'Config file', compose: 'Beside compose', volume: 'Named volume', anonymous: 'Anonymous volume', outside: 'Outside root', ignored: 'Ignored', other: 'Other' };
+  var badge = { ok: 'enabled', compose: 'warning', volume: 'warning', anonymous: 'warning' };
+  var label = labels[m.class] || m.class || 'unknown';
+  var html = '<span class="status-badge ' + (badge[m.class] || 'disabled') + '">' + escapeHtml(label) + '</span>';
+  if (m.class === 'compose' || m.class === 'volume' || m.class === 'anonymous') {
+    html += '<div class="issue-detail">Expected: <code>' + escapeHtml(m.expectedDataPath || '') + '</code></div>';
+  }
+  return html;
+}
+
+function copyStorageJSON() {
+  var btn = document.getElementById('copy-storage-json-btn');
+  if (!storageData) {
+    if (btn) btn.textContent = 'No data';
+    return;
+  }
+  var json = JSON.stringify(storageData, null, 2);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(json).then(function() {
+      if (!btn) return;
+      btn.textContent = 'Copied! \u2713';
+      btn.classList.add('copy-success');
+      setTimeout(function() { btn.textContent = 'Copy JSON'; btn.classList.remove('copy-success'); }, 2000);
+    }).catch(function() {
+      if (btn) btn.textContent = 'Failed';
+    });
+    return;
+  }
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = json;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (btn) btn.textContent = 'Copied! \u2713';
+  } catch (e) {
+    if (btn) btn.textContent = 'Failed';
   }
 }
 
