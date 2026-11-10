@@ -38,6 +38,8 @@ const (
 	categoryTraefikVersion  issueCategory = "traefik-version"
 	categoryTraefikEntity   issueCategory = "traefik-entity"
 	categoryTraefikBackend  issueCategory = "traefik-backend"
+	categoryStorage         issueCategory = "container-storage"
+	categoryBackup          issueCategory = "container-backup"
 )
 
 // hostIssue is one reported finding. It deliberately carries no Docker labels,

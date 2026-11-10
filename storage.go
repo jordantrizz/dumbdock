@@ -846,6 +846,159 @@ func dedupeStrings(in []string) []string {
 }
 
 // ---------------------------------------------------------------------------
+// Findings
+// ---------------------------------------------------------------------------
+
+// describeDataIssue turns a dataset data deviation into one issue row.
+func storageDataIssue(ds storageDataset) (hostIssue, bool) {
+	expected := ds.ExpectedDataPath
+	detail := ""
+	title := ""
+	severity := severityWarning
+	switch ds.DataIssue {
+	case "data-container-layer":
+		title = "Database data is stored in the container filesystem"
+		detail = fmt.Sprintf("%s data (%s) is not on a mounted path, so it is lost when the container is recreated. Move it to %s.", ds.Engine, truncateForLog(ds.DataDestination, 120), expected)
+		severity = severityError
+	case "data-named-volume":
+		title = "Database data is stored in a Docker volume"
+		detail = fmt.Sprintf("%s data uses volume %q instead of %s, so a host backup of the data root does not cover it.", ds.Engine, truncateForLog(ds.DataPath, 80), expected)
+	case "data-anonymous-volume":
+		title = "Database data is stored in an anonymous volume"
+		detail = fmt.Sprintf("%s data uses an anonymous volume instead of %s, so a host backup of the data root does not cover it.", ds.Engine, expected)
+	case "data-beside-compose":
+		title = "Database data is stored beside the compose file"
+		detail = fmt.Sprintf("%s data is at %s, inside the compose project directory. Move it to %s.", ds.Engine, truncateForLog(ds.DataPath, 160), expected)
+	case "data-outside-root":
+		title = "Database data is stored outside the data root"
+		detail = fmt.Sprintf("%s data is at %s, outside %s. Move it to %s.", ds.Engine, truncateForLog(ds.DataPath, 160), defaultDataRoot, expected)
+	default:
+		return hostIssue{}, false
+	}
+	return hostIssue{
+		ID:            newIssueID(categoryStorage, "dataset", ds.Key),
+		Category:      categoryStorage,
+		Severity:      severity,
+		Title:         title,
+		Detail:        detail,
+		Source:        "storage",
+		ContainerID:   ds.ContainerID,
+		ContainerName: ds.ContainerName,
+	}, true
+}
+
+// collectStorageIssues derives the storage findings from the current mounts and
+// datasets. Compose-location findings are per project; mounting and dataset
+// findings are per object, with the dataset row suppressing a duplicate volume
+// mount row for the same destination.
+func collectStorageIssues(containers []dockerContainer, mounts []storageMount, datasets []storageDataset, cfg storageConfig) []hostIssue {
+	var issues []hostIssue
+
+	// Compose file location, one row per project.
+	type projectCheck struct {
+		name        string
+		containerID string
+		bad         []string
+	}
+	checks := map[string]*projectCheck{}
+	var order []string
+	for _, c := range containers {
+		project := safePathSegment(c.composeProject())
+		if project == "" {
+			continue
+		}
+		pc, ok := checks[project]
+		if !ok {
+			pc = &projectCheck{name: project, containerID: shortContainerID(c.ID)}
+			checks[project] = pc
+			order = append(order, project)
+		}
+		expected := filepath.Join(cfg.ContainerRoot, project)
+		for _, f := range c.composeConfigFiles() {
+			if pathWithin(expected, f) {
+				continue
+			}
+			normalized, ok := normalizeHostPath(f)
+			if !ok {
+				normalized = truncateForLog(f, 160)
+			}
+			pc.bad = append(pc.bad, normalized)
+		}
+	}
+	sort.Strings(order)
+	for _, project := range order {
+		pc := checks[project]
+		if len(pc.bad) == 0 {
+			continue
+		}
+		bad := dedupeStrings(pc.bad)
+		sort.Strings(bad)
+		issues = append(issues, hostIssue{
+			ID:          newIssueID(categoryStorage, "compose", project),
+			Category:    categoryStorage,
+			Severity:    severityWarning,
+			Title:       "Compose file is stored outside the container root",
+			Detail:      fmt.Sprintf("%s: move the compose file to %s. Found: %s.", project, filepath.Join(cfg.ContainerRoot, project), truncateForLog(strings.Join(bad, ", "), 200)),
+			Source:      "storage",
+			ContainerID: pc.containerID,
+		})
+	}
+
+	// A volume holding a database datadir is reported once, by the dataset row.
+	covered := map[string]bool{}
+	for _, ds := range datasets {
+		if ds.DataKind == dataKindVolume || ds.DataKind == dataKindAnonymous {
+			covered[ds.Project+"/"+ds.Service+"/"+ds.DataDestination] = true
+		}
+	}
+
+	for _, m := range mounts {
+		key := m.Project + "/" + m.Service
+		switch m.Class {
+		case mountClassCompose:
+			issues = append(issues, hostIssue{
+				ID:            newIssueID(categoryStorage, "mount", key+"/"+m.Destination),
+				Category:      categoryStorage,
+				Severity:      severityWarning,
+				Title:         "Container data is stored beside the compose file",
+				Detail:        fmt.Sprintf("%s mounts %s at %s, inside the compose project directory. Move the data to %s.", key, truncateForLog(m.Source, 160), truncateForLog(m.Destination, 80), m.ExpectedDataPath),
+				Source:        "storage",
+				ContainerID:   m.ContainerID,
+				ContainerName: m.ContainerName,
+			})
+		case mountClassVolume, mountClassAnon:
+			if covered[key+"/"+m.Destination] {
+				continue
+			}
+			kind := "named"
+			if m.Class == mountClassAnon {
+				kind = "anonymous"
+			}
+			issues = append(issues, hostIssue{
+				ID:            newIssueID(categoryStorage, "mount", key+"/"+m.Destination),
+				Category:      categoryStorage,
+				Severity:      severityWarning,
+				Title:         "Persistent data is stored in a Docker volume",
+				Detail:        fmt.Sprintf("%s mounts a %s volume at %s. Use a bind mount from %s so host backups cover it.", key, kind, truncateForLog(m.Destination, 80), m.ExpectedDataPath),
+				Source:        "storage",
+				ContainerID:   m.ContainerID,
+				ContainerName: m.ContainerName,
+			})
+		}
+	}
+
+	for _, ds := range datasets {
+		if ds.DataOK || ds.DataIssue == "" {
+			continue
+		}
+		if issue, ok := storageDataIssue(ds); ok {
+			issues = append(issues, issue)
+		}
+	}
+	return issues
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot store
 // ---------------------------------------------------------------------------
 

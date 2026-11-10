@@ -2,6 +2,8 @@ package main
 
 import (
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -364,5 +366,115 @@ func TestValidateStorageConfig(t *testing.T) {
 	cfg.DataRoot = "relative"
 	if got := validateStorageConfig(cfg); len(got) != 1 || got[0].Field != "DUMBDOCK_DATA_ROOT" {
 		t.Errorf("invalid root warnings = %v", got)
+	}
+}
+
+func TestCollectStorageIssues(t *testing.T) {
+	clearStorageEnv(t)
+	cfg := resolveStorageConfig(nil)
+
+	containers := []dockerContainer{
+		{
+			ID:    "aaaabbbbccccdddd",
+			Image: "postgres:16",
+			Labels: map[string]string{
+				"com.docker.compose.project":              "mwp",
+				"com.docker.compose.service":              "postgres",
+				"com.docker.compose.project.working_dir":  "/home/user/git/mwp",
+				"com.docker.compose.project.config_files": "/home/user/git/mwp/docker-compose.yml",
+			},
+		},
+		{
+			ID:    "eeeeffff00001111",
+			Image: "app:latest",
+			Labels: map[string]string{
+				"com.docker.compose.project":              "mwp",
+				"com.docker.compose.service":              "app",
+				"com.docker.compose.project.working_dir":  "/home/user/git/mwp",
+				"com.docker.compose.project.config_files": "/home/user/git/mwp/docker-compose.yml",
+			},
+		},
+		{
+			ID:    "2222333344445555",
+			Image: "web:latest",
+			Labels: map[string]string{
+				"com.docker.compose.project":              "good",
+				"com.docker.compose.service":              "web",
+				"com.docker.compose.project.config_files": "/opt/containers/good/docker-compose.yml,/opt/containers/good/docker-compose.override.yml",
+			},
+		},
+	}
+
+	mounts := []storageMount{
+		{Project: "mwp", Service: "postgres", ContainerName: "mwp-postgres-1", ContainerID: "aaaabbbbccccdddd", Type: "volume", Source: "/var/lib/docker/volumes/mwp_pgdata/_data", Destination: "/var/lib/postgresql/data", RW: true, Class: mountClassVolume, ExpectedDataPath: "/srv/containers/mwp/postgres"},
+		{Project: "mwp", Service: "app", ContainerName: "mwp-app-1", ContainerID: "eeeeffff00001111", Type: "bind", Source: "/home/user/git/mwp/uploads", Destination: "/app/uploads", RW: true, Class: mountClassCompose, ExpectedDataPath: "/srv/containers/mwp/app"},
+		{Project: "good", Service: "web", ContainerName: "good-web-1", ContainerID: "2222333344445555", Type: "bind", Source: "/srv/containers/good/web", Destination: "/data", RW: true, Class: mountClassOK, ExpectedDataPath: "/srv/containers/good/web"},
+	}
+
+	datasets := []storageDataset{{
+		Key:              "mwp/postgres",
+		Project:          "mwp",
+		Service:          "postgres",
+		ContainerName:    "mwp-postgres-1",
+		ContainerID:      "aaaabbbbccccdddd",
+		Engine:           enginePostgres,
+		DataKind:         dataKindVolume,
+		DataDestination:  "/var/lib/postgresql/data",
+		DataPath:         "mwp_pgdata",
+		DataIssue:        "data-named-volume",
+		ExpectedDataPath: "/srv/containers/mwp/postgres",
+	}}
+
+	issues := collectStorageIssues(containers, mounts, datasets, cfg)
+	if len(issues) != 3 {
+		t.Fatalf("got %d issues, want 3: %+v", len(issues), issues)
+	}
+	var composeCount, mountCount, datasetCount int
+	for _, is := range issues {
+		switch {
+		case is.Detail != "" && is.Title == "Compose file is stored outside the container root":
+			composeCount++
+			if !strings.Contains(is.Detail, "/home/user/git/mwp/docker-compose.yml") {
+				t.Errorf("compose detail missing offending path: %q", is.Detail)
+			}
+		case is.Title == "Container data is stored beside the compose file":
+			mountCount++
+		case is.Title == "Database data is stored in a Docker volume":
+			datasetCount++
+		}
+	}
+	if composeCount != 1 {
+		t.Errorf("compose findings = %d, want 1 (one per project)", composeCount)
+	}
+	if mountCount != 1 {
+		t.Errorf("mount findings = %d, want 1", mountCount)
+	}
+	if datasetCount != 1 {
+		t.Errorf("dataset findings = %d, want 1 (volume mount must not duplicate)", datasetCount)
+	}
+
+	// IDs are stable across ordering.
+	ids := func(list []hostIssue) []string {
+		out := make([]string, 0, len(list))
+		for _, is := range list {
+			out = append(out, is.ID)
+		}
+		sort.Strings(out)
+		return out
+	}
+	first := ids(issues)
+	reversed := []storageMount{mounts[2], mounts[1], mounts[0]}
+	second := ids(collectStorageIssues([]dockerContainer{containers[2], containers[1], containers[0]}, reversed, datasets, cfg))
+	if strings.Join(first, ",") != strings.Join(second, ",") {
+		t.Errorf("issue IDs changed with ordering:\n%v\n%v", first, second)
+	}
+
+	// Ignored and config mounts produce no findings.
+	quiet := []storageMount{
+		{Project: "mwp", Service: "app", Destination: "/app/uploads", Class: mountClassIgnored},
+		{Project: "mwp", Service: "app", Destination: "/etc/app.ini", Class: mountClassConfig},
+	}
+	if got := collectStorageIssues(nil, quiet, nil, cfg); len(got) != 0 {
+		t.Errorf("ignored/config mounts produced findings: %+v", got)
 	}
 }

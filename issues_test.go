@@ -851,3 +851,49 @@ func TestIssueStoreConcurrentSnapshots(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestIssueStoreStorageFindingLifecycle(t *testing.T) {
+	store := newIssueStore(t.TempDir())
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+
+	iss := testIssue(categoryStorage, "storage", "mwp/postgres", "Database data is stored in a Docker volume")
+	if err := store.apply([]hostIssue{iss}, completeCoverage(), now); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := store.snapshotIssues().Count; got != 1 {
+		t.Fatalf("Count = %d, want 1", got)
+	}
+
+	if err := store.acknowledge(iss.ID); err != nil {
+		t.Fatalf("acknowledge: %v", err)
+	}
+	snap := store.snapshotIssues()
+	if snap.Count != 0 || len(snap.Acknowledged) != 1 {
+		t.Fatalf("after acknowledge: %d active, %d acknowledged", snap.Count, len(snap.Acknowledged))
+	}
+
+	// An incomplete collection must retain the acknowledgement so a recurrence
+	// stays acknowledged.
+	if err := store.apply(nil, issueCoverage{CollectionComplete: false}, now.Add(time.Second)); err != nil {
+		t.Fatalf("apply partial: %v", err)
+	}
+	if err := store.apply([]hostIssue{iss}, completeCoverage(), now.Add(2*time.Second)); err != nil {
+		t.Fatalf("apply recurrence: %v", err)
+	}
+	snap = store.snapshotIssues()
+	if snap.Count != 0 || len(snap.Acknowledged) != 1 {
+		t.Fatal("acknowledgement was dropped by an incomplete collection")
+	}
+
+	// A complete collection that no longer reports the finding prunes the
+	// acknowledgement, so a later recurrence is active again.
+	if err := store.apply(nil, completeCoverage(), now.Add(3*time.Second)); err != nil {
+		t.Fatalf("apply complete: %v", err)
+	}
+	if err := store.apply([]hostIssue{iss}, completeCoverage(), now.Add(4*time.Second)); err != nil {
+		t.Fatalf("apply after prune: %v", err)
+	}
+	if got := store.snapshotIssues().Count; got != 1 {
+		t.Fatalf("Count after prune and recurrence = %d, want 1", got)
+	}
+}
