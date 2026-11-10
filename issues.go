@@ -407,6 +407,20 @@ func (s *issueStore) apply(found []hostIssue, coverage issueCoverage, now time.T
 	return nil
 }
 
+// hasAcknowledgedCategory reports whether any acknowledgement currently maps
+// to a known issue in the given category. It protects backup acknowledgements
+// from being pruned while no evidence provider is configured.
+func (s *issueStore) hasAcknowledgedCategory(cat issueCategory) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for id := range s.ack {
+		if iss, ok := s.known[id]; ok && iss.Category == cat {
+			return true
+		}
+	}
+	return false
+}
+
 // hasIssueLocked reports whether id is present in the known set.
 func (s *issueStore) hasIssueLocked(id string) bool {
 	_, ok := s.known[id]

@@ -396,3 +396,143 @@ func TestEvidenceEngineMissingRootIsNotConfigured(t *testing.T) {
 		t.Error("an unmounted root is a coverage state, not an incomplete collection")
 	}
 }
+
+func testDockerClient(t *testing.T) *http.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/json"):
+			w.Write([]byte(`{"State":{"Status":"exited","ExitCode":0}}`))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return &http.Client{Transport: rewriteTransport{target: srv.URL}, Timeout: 2 * time.Second}
+}
+
+func storageTestContainer(root string) dockerContainer {
+	return dockerContainer{
+		ID:    "0123456789abcdef",
+		Image: "postgres:16",
+		Labels: map[string]string{
+			"com.docker.compose.project": "mwp",
+			"com.docker.compose.service": "postgres",
+		},
+		Mounts: []dockerMount{{
+			Type: "bind", Source: filepath.Join(root, "mwp", "postgres"), Destination: "/var/lib/postgresql/data", RW: true,
+		}},
+	}
+}
+
+func TestStorageCollectorTTL(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	writeArtifact(t, filepath.Join(root, "mwp", "postgres", "backups"), "app.sql.gz", now.Add(-time.Hour))
+
+	cfg := storageConfig{
+		ContainerRoot: "/opt/containers",
+		DataRoot:      root,
+		BackupRoot:    root,
+		DefaultMaxAge: 26 * time.Hour,
+		ScanInterval:  5 * time.Minute,
+	}
+	collector := newStorageCollector(cfg, testDockerClient(t), newReportStore(t.TempDir()), false)
+	collector.now = func() time.Time { return now }
+
+	containers := []dockerContainer{storageTestContainer(root)}
+	first := collector.Collect(containers)
+	if len(first.response.Datasets) != 1 {
+		t.Fatalf("datasets = %+v", first.response.Datasets)
+	}
+	if got := first.response.Datasets[0].Verdict; got != verdictOK {
+		t.Errorf("verdict = %q, want ok", got)
+	}
+	if collector.scanCount() != 1 {
+		t.Fatalf("scans = %d, want 1", collector.scanCount())
+	}
+
+	now = now.Add(time.Minute)
+	collector.Collect(containers)
+	if collector.scanCount() != 1 {
+		t.Errorf("scan repeated inside the interval: %d", collector.scanCount())
+	}
+
+	now = now.Add(5 * time.Minute)
+	collector.Collect(containers)
+	if collector.scanCount() != 2 {
+		t.Errorf("scan did not run after the interval: %d", collector.scanCount())
+	}
+}
+
+func TestStorageCollectorUnconfiguredProviders(t *testing.T) {
+	now := time.Now()
+	cfg := storageConfig{
+		ContainerRoot: "/opt/containers",
+		DataRoot:      "/nonexistent-data-root",
+		BackupRoot:    "/nonexistent-data-root",
+		DefaultMaxAge: 26 * time.Hour,
+		ScanInterval:  time.Minute,
+	}
+	collector := newStorageCollector(cfg, testDockerClient(t), newReportStore(t.TempDir()), false)
+	collector.now = func() time.Time { return now }
+
+	out := collector.Collect([]dockerContainer{storageTestContainer("/srv/containers")})
+	if len(out.response.Datasets) != 1 {
+		t.Fatalf("datasets = %+v", out.response.Datasets)
+	}
+	ds := out.response.Datasets[0]
+	if ds.Verdict != verdictUnverified {
+		t.Errorf("verdict = %q, want unverified", ds.Verdict)
+	}
+	if collector.evaluated() {
+		t.Error("evaluated = true without any configured provider")
+	}
+	if !out.response.Coverage.CollectionComplete {
+		t.Error("an unmounted root must not mark the collection incomplete")
+	}
+	if len(collectBackupIssues(out.response.Datasets)) != 0 {
+		t.Error("unverified datasets produced a backup finding")
+	}
+}
+
+func TestStorageStoreGetHandler(t *testing.T) {
+	store := newStorageStore()
+	store.apply(storageResponse{Datasets: []storageDataset{{Key: "mwp/postgres"}}}, nil, nil, true, true)
+
+	rec := httptest.NewRecorder()
+	store.getHandler(rec, httptest.NewRequest(http.MethodGet, "/api/storage", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q", got)
+	}
+	var body storageResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Datasets) != 1 || body.Datasets[0].Key != "mwp/postgres" {
+		t.Errorf("body = %+v", body)
+	}
+}
+
+func TestBearerMatches(t *testing.T) {
+	cases := []struct {
+		header, token string
+		want          bool
+	}{
+		{"Bearer secret", "secret", true},
+		{"Bearer  secret ", "secret", true},
+		{"Bearer wrong", "secret", false},
+		{"secret", "secret", false},
+		{"Bearer ", "", false},
+		{"Bearer anything", "", false},
+	}
+	for _, tc := range cases {
+		if got := bearerMatches(tc.header, tc.token); got != tc.want {
+			t.Errorf("bearerMatches(%q, %q) = %v, want %v", tc.header, tc.token, got, tc.want)
+		}
+	}
+}

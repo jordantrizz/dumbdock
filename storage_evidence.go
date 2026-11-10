@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -654,4 +655,164 @@ func (h *reportHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // newReportHandler builds the report handler.
 func newReportHandler(reports *reportStore, storage *storageStore) *reportHandler {
 	return &reportHandler{reports: reports, storage: storage, now: time.Now}
+}
+
+// ---------------------------------------------------------------------------
+// Collector with TTL cache
+// ---------------------------------------------------------------------------
+
+// storageCollection is one collector run: the published snapshot plus its
+// derived findings.
+type storageCollection struct {
+	response storageResponse
+	issues   []hostIssue
+}
+
+// storageCollector owns the expensive part of the storage collection. Container
+// mounts and labels are free (they arrive with the container list); inspects,
+// the sqlite scan, and evidence collection run at most once per ScanInterval or
+// when a new dataset appears.
+type storageCollector struct {
+	cfg      storageConfig
+	evidence *evidenceEngine
+	now      func() time.Time
+
+	mu           sync.Mutex
+	lastScan     time.Time
+	inspects     map[string]dockerInspect
+	sqlite       map[string][]string
+	outcome      evidenceOutcome
+	evidenceKeys map[string]bool
+	configured   bool
+	scans        int
+}
+
+func newStorageCollector(cfg storageConfig, docker *http.Client, reports *reportStore, pushEnabled bool) *storageCollector {
+	return &storageCollector{
+		cfg: cfg,
+		evidence: &evidenceEngine{
+			cfg:         cfg,
+			docker:      docker,
+			reports:     reports,
+			pushEnabled: pushEnabled,
+		},
+		now:          time.Now,
+		inspects:     map[string]dockerInspect{},
+		sqlite:       map[string][]string{},
+		evidenceKeys: map[string]bool{},
+	}
+}
+
+// Collect builds the storage snapshot. It is called from the poll goroutine.
+func (c *storageCollector) Collect(containers []dockerContainer) storageCollection {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := c.now()
+	datasets := buildStorageDatasets(containers, c.inspects, c.cfg, c.sqlite)
+
+	needScan := c.lastScan.IsZero() || now.Sub(c.lastScan) >= c.cfg.ScanInterval
+	if !needScan {
+		for _, ds := range datasets {
+			if !c.evidenceKeys[ds.Key] {
+				needScan = true
+				break
+			}
+		}
+	}
+
+	if needScan {
+		c.scans++
+		c.inspects = map[string]dockerInspect{}
+		inspected := 0
+		for _, ctr := range containers {
+			if inspected >= 50 {
+				break
+			}
+			if detectDataEngine(ctr.Image, ctr.Labels) == "" && strings.TrimSpace(ctr.Labels["dumbdock.backup-for"]) == "" {
+				continue
+			}
+			inspected++
+			if inspect, err := fetchContainerInspect(c.evidence.docker, ctr.ID); err == nil {
+				c.inspects[shortContainerID(ctr.ID)] = inspect
+			}
+		}
+
+		c.sqlite = map[string][]string{}
+		if found, _, ok := scanSQLiteFiles(c.cfg.DataRoot, containers, time.Now().Add(3*time.Second)); ok {
+			c.sqlite = found
+		}
+
+		// Rebuild with the fresh inspect and sqlite data before collecting
+		// evidence, so a newly discovered sqlite file is evaluated in this run.
+		datasets = buildStorageDatasets(containers, c.inspects, c.cfg, c.sqlite)
+		c.outcome = c.evidence.collect(containers, datasets, now)
+		c.evidenceKeys = map[string]bool{}
+		for _, ds := range datasets {
+			c.evidenceKeys[ds.Key] = true
+		}
+		c.lastScan = now
+	}
+
+	c.configured = c.outcome.configured
+	for i := range datasets {
+		ev := c.outcome.evidence[datasets[i].Key]
+		if ev == nil {
+			ev = []backupEvidence{}
+		}
+		datasets[i].Evidence = ev
+		evaluateDataset(&datasets[i], c.outcome.configured, now)
+	}
+
+	mounts := buildStorageMounts(containers, c.cfg)
+	response := storageResponse{
+		Datasets: datasets,
+		Mounts:   mounts,
+		Coverage: storageCoverage{
+			CollectionComplete: c.outcome.complete,
+			ContainerRoot:      c.cfg.ContainerRoot,
+			DataRoot:           c.cfg.DataRoot,
+			BackupRoot:         c.cfg.BackupRoot,
+			Providers:          c.outcome.providers,
+			Warnings:           append([]string(nil), c.outcome.warnings...),
+		},
+		CheckedAt: now,
+	}
+
+	issues := collectStorageIssues(containers, mounts, datasets, c.cfg)
+	issues = append(issues, collectBackupIssues(datasets)...)
+	return storageCollection{response: response, issues: issues}
+}
+
+// evaluated reports whether any evidence provider was configured in the last
+// run. A false value must not prune backup acknowledgements.
+func (c *storageCollector) evaluated() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.configured
+}
+
+// scanCount is used by tests to prove the TTL.
+func (c *storageCollector) scanCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.scans
+}
+
+// getHandler serves the cached storage snapshot.
+func (s *storageStore) getHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(s.snapshot())
+}
+
+// bearerMatches compares an Authorization header with a configured token in
+// constant time. An empty token never matches.
+func bearerMatches(header, token string) bool {
+	const prefix = "Bearer "
+	if token == "" || !strings.HasPrefix(header, prefix) {
+		return false
+	}
+	got := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	return subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1
 }
