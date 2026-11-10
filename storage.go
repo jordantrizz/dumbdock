@@ -571,8 +571,13 @@ func evaluateDataset(ds *storageDataset, providersConfigured bool, now time.Time
 
 	maxAge, _ := time.ParseDuration(ds.PolicyMaxAge)
 	if newest == nil {
+		if ds.Required {
+			ds.Verdict = verdictMissing
+			ds.Reason = "no backup evidence found"
+			return
+		}
 		ds.Verdict = verdictUnverified
-		ds.Reason = "no backup evidence found"
+		ds.Reason = "no backup evidence found; a backup is not required for this dataset"
 		return
 	}
 	age := now.Sub(newest.At)
@@ -993,6 +998,39 @@ func collectStorageIssues(containers []dockerContainer, mounts []storageMount, d
 		}
 		if issue, ok := storageDataIssue(ds); ok {
 			issues = append(issues, issue)
+		}
+	}
+	return issues
+}
+
+// collectBackupIssues derives the backup findings from the evaluated datasets.
+// Unverified and exempt datasets never produce a row.
+func collectBackupIssues(datasets []storageDataset) []hostIssue {
+	var issues []hostIssue
+	for _, ds := range datasets {
+		switch ds.Verdict {
+		case verdictStale:
+			issues = append(issues, hostIssue{
+				ID:            newIssueID(categoryBackup, "backup", ds.Key),
+				Category:      categoryBackup,
+				Severity:      severityWarning,
+				Title:         "Database backup is stale",
+				Detail:        fmt.Sprintf("%s %s: %s. Write a fresh dump to %s.", ds.Engine, ds.Key, ds.Reason, ds.BackupDir),
+				Source:        "backup",
+				ContainerID:   ds.ContainerID,
+				ContainerName: ds.ContainerName,
+			})
+		case verdictMissing:
+			issues = append(issues, hostIssue{
+				ID:            newIssueID(categoryBackup, "backup", ds.Key),
+				Category:      categoryBackup,
+				Severity:      severityError,
+				Title:         "Database has no backup evidence",
+				Detail:        fmt.Sprintf("%s %s requires a backup every %s and none was found. Write a dump to %s, or waive it with dumbdock.backup.disabled=true.", ds.Engine, ds.Key, ds.PolicyMaxAge, ds.BackupDir),
+				Source:        "backup",
+				ContainerID:   ds.ContainerID,
+				ContainerName: ds.ContainerName,
+			})
 		}
 	}
 	return issues
