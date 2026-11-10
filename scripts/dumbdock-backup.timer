@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily dumbdock database backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=dumbdock-backup.service
+
+[Install]
+WantedBy=timers.target

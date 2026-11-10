@@ -203,18 +203,71 @@ see README "Issues Tab"):
   body at 1 MiB, sends no credentials, and keeps the last successful version after a failure.
   An unavailable comparison is `coverage`, never a finding. The UI and README must keep the
   distro/package caveat.
-* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Issues, Icons, Help.
+* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Issues, Storage, Icons, Help.
   `TAB_IDS` includes `issues`; `loadIssues()` refreshes the badge on every authenticated poll
   and renders the page only when it is visible. The Group/Compose/Dependency toggle is shown
   only on the Dashboard (`setActiveTab`), and its saved mode must survive tab switches. Every
   interpolated issue/coverage value goes through `escapeHtml` (H-02). Do not fetch before auth
   resolves and do not reintroduce the old unconditional `loadTraefik()` call.
 
+## Storage and Backups
+
+Implemented 2026-11-07 (`storage.go`, `storage_evidence.go`, `docker.go`, `main.go`, `index.html`;
+see README "Storage Tab" and "Backup Reference Job"):
+
+* **Conventions are policy.** Compose files belong under `/opt/containers/<project>/`; persistent
+  data under `/srv/containers/<project>/<service>/`; backup artifacts under
+  `<service>/backups/`. Roots come from `DUMBDOCK_CONTAINER_ROOT`, `DUMBDOCK_DATA_ROOT`, and
+  `DUMBDOCK_BACKUP_ROOT`, then `storage.*` in the config file, then the defaults. Only
+  compose-managed containers are evaluated; standalone containers are out of scope.
+* **Read-only means metadata only.** The scanner calls `os.ReadDir` + `Info` and never opens a
+  dump. Keep the three-second budget, the 200-entry/500-entry caps, the depth cap, and the
+  symlink refusal. Every filesystem path is derived from a sanitized compose project/service
+  segment and confirmed inside the configured root; never accept a path from a request and never
+  repair a `..` segment into a plausible path. No `docker exec`, no image pull, no container
+  restart, no file move.
+* **Evidence honesty.** A dataset is `missing` only when a provider is configured **and** the
+  policy is required. An unconfigured provider leaves datasets `unverified` and is coverage, not
+  a finding. A provider that errors or times out sets `collectionComplete=false`, and an
+  incomplete collection must never prune acknowledgements. `dumbdock.backup.disabled=true` is
+  `exempt` — visible, never a finding. A failed push report is not evidence of a backup.
+* **Collection cadence.** Mounts, labels, and dataset detection are free and run on the existing
+  10s poll. Container inspects, the SQLite scan, and evidence collection run at most once per
+  `DUMBDOCK_BACKUP_SCAN_INTERVAL` (default `5m`) or when a new dataset appears. `GET /api/storage`
+  is a cache read; never add Docker or filesystem I/O to the handler.
+* **Report endpoint.** `POST /api/backups/report` requires the normal auth **or**
+  `Authorization: Bearer <DUMBDOCK_BACKUP_TOKEN>` (constant-time compare, scoped to this route
+  only), plus `X-Dumbdock-Request: backups`. The target must already be a detected dataset; the
+  artifact must be a bare, bounded file name; the body is capped at 16 KiB; future timestamps
+  are clamped. Reports persist to `backup-reports.json` (`0600`, atomic rename) in the state
+  directory and are pruned 30 days after their dataset disappears. A report can never create a
+  path or a dataset.
+* **Findings.** New categories `container-storage` and `container-backup`. Compose-location
+  findings are keyed per project; mount and dataset findings are keyed
+  `<project>/<service>/<destination>` and `<project>/<service>`; backup findings are keyed
+  `<project>/<service>`. Container-layer database data is `error`; every other storage finding
+  and a stale backup are `warning`; a required backup with no evidence is `error`. IDs come from
+  `newIssueID` and never from display text, paths, or timestamps.
+* **Settings.** Every new setting must reach `startupConfig`, `validateConfig` (advisory only),
+  and `logStartupConfig`. `DUMBDOCK_BACKUP_TOKEN` is a secret: redact it via `redactSecret` and
+  report presence only. Invalid raw durations/paths are reported from the environment even when
+  the resolved value falls back to a default.
+* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Issues, **Storage**, Icons,
+  Help; `TAB_IDS` includes `storage`. `loadStorage()` renders only while the tab is visible and
+  never fetches before `checkAuth()` resolves. The Storage copy button has its own
+  `#copy-storage-json-btn`; `#copy-json-btn` and the group toggle stay Dashboard-only. Every
+  interpolated dataset, mount, artifact, path, and coverage value goes through `escapeHtml`.
+  The Storage tab adds no badge; backup and storage findings already flow into the Issues badge.
+* **Compose parity.** Keep `docker-compose.yml.example` and the local `docker-compose.yml` in
+  sync for every non-local value. The example documents the optional read-only
+  `- /srv/containers:/srv/containers:ro` mount (create the directory first); the local file may
+  enable it. The fixed in-container port `8080` and the TCP healthcheck are unchanged.
+
 ## Help Tab
 
 Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
 
-* The **Help** tab is always visible, immediately after Traefik. It is pure static markup in
+* The **Help** tab is always visible, immediately after Icons. It is pure static markup in
   `#page-help`/`#help-app` — no `loadHelp()` fetch, no `setInterval` refresh, and no backend route.
   `setActiveTab('help')` only toggles visibility + nav highlight; `switchTab('help')` additionally
   syncs the URL fragment (see "Tab Persistence" below). Keep the no-fetch rule.
@@ -228,7 +281,7 @@ Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
 Implemented 2026-09-23 (`index.html`; see README "Tab Persistence"):
 
 * The active tab is stored in the URL fragment as a bare `#<tab>` id (`dashboard`, `networking`,
-  `traefik`, `issues`, `icons`, `help`). Clicking a tab pushes a history entry (`location.hash = tab`), so
+  `traefik`, `issues`, `storage`, `icons`, `help`). Clicking a tab pushes a history entry (`location.hash = tab`), so
   refresh (Ctrl+R), bookmarks, and back/forward all restore the tab.
 * `tabFromHash(hash, doc)` resolves a fragment: a known tab id maps directly; any other fragment
   maps to the tab whose `page-*` element contains the matching element id (this is how the in-page

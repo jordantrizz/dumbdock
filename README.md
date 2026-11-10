@@ -25,6 +25,8 @@ A simple, no-frills web dashboard for your Docker containers. dumbdock shows a c
 - **Dashboard scoreboard** — a clickable summary above the legend counts containers with image updates, private port bindings, localhost port bindings, and Traefik enabled; clicking a tile filters the dashboard to the matching containers. See [Dashboard Scoreboard](#dashboard-scoreboard).
 - **Traefik Dashboard** — automatically detects running Traefik containers, inspects them to resolve the API URL (label, network IP, or published port), and renders a full Traefik status dashboard as a dedicated tab — showing version, overview stats, entrypoints, HTTP/TCP routers, services, middlewares, and TLS certificates.
 - **Issues tab** — a dedicated tab beside Traefik that lists every actionable problem dumbdock can prove from the Docker and Traefik APIs: publicly bound ports, available image updates, containers Docker reports as `unhealthy`, Traefik API/entity/backend failures, unsupported Traefik versions, and an outdated Docker Engine. The tab carries a live count badge, supports acknowledging a finding until it resolves, and never repairs or mutates the host. See [Issues Tab](#issues-tab).
+- **Storage tab** — a dedicated tab beside Issues that enforces the host conventions: compose files belong in `/opt/containers/<project>/`, persistent data in `/srv/containers/<project>/<service>/`, and data must not sit beside the compose file, in a Docker volume, or in the container layer. It detects PostgreSQL, MySQL, MariaDB, and SQLite datasets, shows the freshness of their backups, and marks a dataset `unverified` (never "unbacked") when no evidence source is configured. See [Storage Tab](#storage-tab).
+- **Backup verification** — verifies backup evidence from three sources: a read-only scan of the data root, a container labeled `dumbdock.backup-for`, or authenticated push reports from a backup job. Stale and missing backups become acknowledgeable Issues rows. dumbdock never runs a backup, reads a dump, or moves a file. A reference host-side job is included in `scripts/`.
 - **Networking tab** — a dedicated tab next to Dashboard showing every container and the networks it is attached to. Running containers are grouped under each network (with their in-network IP and open ports, internal → external), and stopped containers appear in a separate flat list. Data comes from a dedicated `GET /api/networking` endpoint that exposes only identity, state, network IPs, and ports — no Docker labels. Containers that publish ports on `0.0.0.0` (all interfaces) are flagged with a warning banner at the top of the page and a ⚠ marker on their row.
 - **Help tab** — an always-visible **Help** tab (after Icons) with static getting-started guides. The first guide, **Configure Traefik API Access**, walks through enabling Traefik's read-only API (insecure entrypoint or secured `api@internal`), configuring auth for dumbdock, verifying with `curl /api/version`, and troubleshooting the errors the Traefik tab surfaces. See [Help Tab](#help-tab).
 - **Persistent tabs** — the selected tab is kept in the URL fragment (`#networking`, `#traefik`, `#issues`, …), so a browser refresh (Ctrl+R) leaves you on the same tab, and any tab can be bookmarked or shared. See [Tab Persistence](#tab-persistence).
@@ -81,9 +83,12 @@ docker run -d \
   --name dumbdock \
   -p 127.0.0.1:8080:8080 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v /srv/containers:/srv/containers:ro \
   -e POLL_INTERVAL=10s \
   ghcr.io/jordantrizz/dumbdock:latest
 ```
+
+The `/srv/containers` mount is optional but needed for the **Storage** tab to verify backup artifacts; without it the tab still shows every database and its data path, and marks each backup as *unverified* rather than claiming it is missing.
 
 ### From source
 
@@ -255,6 +260,41 @@ Behavior notes:
 - **No resolvable dependency** — containers with no `depends_on` label, or whose dependency service isn't running, go under a `Standalone` group.
 - **Toggle** — the button in the nav bar cycles **By Group → By Compose → By Dependency → By Group**. Your choice is remembered across page loads. The toggle is only shown on the Dashboard tab, because it affects only the container grid.
 
+### Storage and backup labels
+
+The **Storage** tab reads these labels; none is required for the dashboard to work.
+
+| Label | Applies to | Effect |
+|-------|-----------|--------|
+| `dumbdock.backup.engine` | any container | Declares the database family: `postgres`, `mysql`, `mariadb`, or `sqlite`. Overrides image detection. |
+| `dumbdock.backup.sqlite` | SQLite workload | Comma-separated **in-container** paths, e.g. `/data/app.db`. Also makes an otherwise generic image count as a SQLite dataset. |
+| `dumbdock.backup.database` | database container | Database name shown on the Storage tab and used by the reference backup job. Only a name — never a password. |
+| `dumbdock.backup.max-age` | dataset | Freshness window as a Go duration (`26h`, `48h`, `90m`). Overrides the config file and the default. |
+| `dumbdock.backup.required` | dataset | `false` keeps a dataset visible but never raises a *missing backup* finding. |
+| `dumbdock.backup.disabled` | dataset | `true` waives the backup requirement (`exempt`): visible, never a finding. |
+| `dumbdock.backup-for` | backup container | Declares that this container backs up `<project>/<service>`. A clean exit-0 run is evidence; a running container is not. |
+| `dumbdock.data.mount` | any container | `<source>:<destination>` (comma-separated) when the datadir is not the engine default. |
+| `dumbdock.storage.ignore` | any container | Comma-separated mount destinations, or `all`, to waive data-path findings for deliberate mounts. |
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    labels:
+      dumbdock.backup.database: app
+      dumbdock.backup.max-age: 26h
+    volumes:
+      - /srv/containers/mwp/postgres:/var/lib/postgresql/data
+
+  notes:
+    image: alpine:3.20
+    labels:
+      dumbdock.backup.engine: sqlite
+      dumbdock.backup.sqlite: /data/notes.db
+    volumes:
+      - /srv/containers/notes/app:/data
+```
+
 ## Traefik Dashboard
 
 The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting. dumbdock requires **Traefik v3**; other major versions display an "Unsupported Traefik version" error (see [Supported Traefik version](#supported-traefik-version)).
@@ -328,6 +368,8 @@ The **Issues** tab sits between **Traefik** and **Icons** and lists every action
 | Traefik entities | `error` / `warning` | A router, service, or middleware reports status `error` (error), `disabled`, or `warning` (warning) |
 | Traefik backends | `error` | A load-balancer server reports `DOWN` |
 | Docker Engine | `warning` | The daemon version is older than the latest stable Moby release (advisory) |
+| Storage paths | `warning` / `error` | A compose file outside `/opt/containers/<project>/`, data beside the compose file, or data in a Docker volume (warning); database data in the container layer (error) |
+| Database backups | `warning` / `error` | The newest verified backup is older than the dataset's policy (warning) or no backup exists although the policy requires one (error) |
 
 ### What is deliberately not a finding
 
@@ -339,6 +381,8 @@ The **Issues** tab sits between **Traefik** and **Icons** and lists every action
 - A missing Traefik container (that is install guidance on the Traefik tab).
 - Traefik endpoints that return 404 / "not configured" (for example no TLS certificates).
 - Raw container logs — dumbdock does not read log output for this feature.
+- A database whose backup is `unverified` because no evidence source is configured, and any dataset waived with `dumbdock.backup.disabled=true`.
+- Config-file mounts (matched by extension, or a destination under `/etc/`) and mounts waived with `dumbdock.storage.ignore`.
 
 ### Counts and ordering
 
@@ -361,6 +405,100 @@ dumbdock reads the daemon version from `GET /version` and, at most once every 24
 The full snapshot is rebuilt in the background poll; the Issues page itself only reads a cached snapshot from `/api/issues`, so it never blocks on Docker or GitHub. The badge refreshes every 10 seconds; the page re-renders only while it is the visible tab. The **Collection** line and any warning banner state whether all inputs were checked.
 
 > **Read-only:** the Issues tab never pulls images, restarts containers, changes port bindings, upgrades Docker, or edits Traefik. Acknowledging a finding changes only dumbdock's own state file.
+
+## Storage Tab
+
+The **Storage** tab sits between **Issues** and **Icons**. It answers two questions per compose project: *is the compose file and its data where the host convention says it should be?* and *when was each database last backed up?*
+
+### Conventions
+
+| Rule | Default | Override |
+|------|---------|----------|
+| Compose file | `/opt/containers/<project>/docker-compose.yml` (any path under `<project>/`) | `DUMBDOCK_CONTAINER_ROOT` / `storage.containerRoot` |
+| Persistent data | `/srv/containers/<project>/<service>/` | `DUMBDOCK_DATA_ROOT` / `storage.dataRoot` |
+| Backup artifacts | `/srv/containers/<project>/<service>/backups/` | `DUMBDOCK_BACKUP_ROOT` / `storage.backupRoot` |
+| Freshness | `26h` per required dataset | `dumbdock.backup.max-age`, `storage.backups.<project>/<service>.maxAge` |
+
+Only compose-managed containers are evaluated. A writable bind mount is a **data** mount unless it looks like a config artifact (a known config extension, or a destination under `/etc/`) or is waived with `dumbdock.storage.ignore`. A mount whose source is inside `com.docker.compose.project.working_dir` is reported as *beside the compose file*; a named or anonymous volume is reported as *in a Docker volume*; a database with no matching mount is reported as *in the container layer*.
+
+### Databases and verdicts
+
+The engine is detected from the image repository (`postgres`, `postgis`, `timescaledb`, `mysql`, `percona`, `mariadb`, with Bitnami paths) or declared with `dumbdock.backup.engine`. SQLite is detected from `dumbdock.backup.sqlite` or from `*.db`, `*.sqlite`, `*.sqlite3` files found under the service data directory (bounded depth and entry count). The datadir comes from the engine default, `PGDATA`, or `dumbdock.data.mount`.
+
+| Verdict | Meaning |
+|---------|---------|
+| `ok` | Newest evidence is within the policy window |
+| `stale` | Evidence exists but is older than the window |
+| `missing` | The policy requires a backup and none was found |
+| `unverified` | No evidence provider is configured, or the dataset is not required — **not** a claim that no backup exists |
+| `exempt` | `dumbdock.backup.disabled=true`: visible, never a finding |
+
+### Evidence providers
+
+1. **Filesystem** — a read-only scan of `<backupRoot>/<project>/<service>/backups/`. Only the directory listing and file modification times are read; dump contents are never opened. The scan is bounded (200 entries per directory, a three-second budget), refuses symlinks, and matches logical-dump suffixes (`.sql`, `.sql.gz`, `.dump`, `.tar.gz`, `.sqlite`, `.sqlite.gz`, `.db.gz`, `.bak`). The data root must be mounted into the container at the same path:
+   ```yaml
+   volumes:
+     - /srv/containers:/srv/containers:ro
+   ```
+2. **Backup containers** — a container labeled `dumbdock.backup-for=<project>/<service>` counts when its last run **exited 0** (read from `State.ExitCode` / `FinishedAt`). A running container is not proof of a completed run.
+3. **Push reports** — a backup job POSTs to `/api/backups/report` with `DUMBDOCK_BACKUP_TOKEN`. Reports live in `backup-reports.json` (`0600`) in the state directory.
+
+A provider that is not configured is shown as coverage and keeps datasets `unverified`. A provider that **errors** marks the collection as partial, and partial collection never prunes acknowledgements. dumbdock does not run `docker exec`, read a dump, pull an image, restart a container, or move a file.
+
+### Migrating this host
+
+Existing paths are **reported, not changed**. Moving a project is a maintenance-window operation with sudo, performed by the operator:
+
+```bash
+# 1. Stop the project and take a restorable dump first.
+docker compose -p mwp down
+docker exec mwp-postgres-1 pg_dump -U postgres app | gzip >/tmp/app.sql.gz
+
+# 2. Move the compose project and create the data directory.
+sudo install -d -m 0755 /opt/containers /srv/containers/mwp/postgres
+sudo mv /root/containers/mwp /opt/containers/mwp
+
+# 3. Copy data out of a named volume (repeat per service).
+docker run --rm -v mwp_pgdata:/from -v /srv/containers/mwp/postgres:/to \
+  alpine sh -c 'cp -a /from/. /to/'
+
+# 4. Point the compose file at /srv/containers/... and restart.
+docker compose -p mwp -f /opt/containers/mwp/docker-compose.yml up -d
+```
+
+Verify with the Storage tab (mounts flip to `OK`, compose findings disappear) and with `pg_restore --list /tmp/app.sql.gz` before removing the old volume.
+
+## Backup Reference Job
+
+`scripts/backup-databases.sh` is the reference producer for the evidence the Storage tab verifies. It is host-side tooling: dumbdock never runs, schedules, or reads it.
+
+- Discovers containers by `dumbdock.backup.engine` and validates the compose project/service labels.
+- PostgreSQL: `pg_dump` inside the container; MySQL/MariaDB: `mysqldump` or `mariadb-dump` (single transaction, routines, events); SQLite: `sqlite3 ".backup"` plus `docker cp`, because a plain file copy of a live SQLite database is not safe.
+- Writes `<dataRoot>/<project>/<service>/backups/<engine>-<service>-<UTC stamp>.sql.gz` with `umask 077` and mode `0600`, rejects an empty dump, and keeps the newest 14 artifacts (`BACKUP_RETENTION`).
+- `--dry-run` prints every planned action without writing.
+- Reports each outcome to dumbdock when `DUMBDOCK_URL` and `DUMBDOCK_BACKUP_TOKEN` are set; a failed dump reports `ok:false` and exits non-zero.
+
+```bash
+# Install (review the script first; it runs as root with docker access).
+sudo install -m 0755 scripts/backup-databases.sh /usr/local/bin/dumbdock-backup
+sudo install -m 0644 scripts/dumbdock-backup.service /etc/systemd/system/
+sudo install -m 0644 scripts/dumbdock-backup.timer /etc/systemd/system/
+sudo tee /etc/default/dumbdock-backup >/dev/null <<'EOF'
+DUMBDOCK_DATA_ROOT=/srv/containers
+BACKUP_RETENTION=14
+DUMBDOCK_URL=http://127.0.0.1:8080
+DUMBDOCK_BACKUP_TOKEN=replace-me
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now dumbdock-backup.timer
+
+# Verify the artifact, then let dumbdock confirm it.
+gzip -t /srv/containers/mwp/postgres/backups/*.sql.gz
+pg_restore --list /srv/containers/mwp/postgres/backups/<artifact>.sql.gz | head
+sqlite3 <artifact>.sqlite "pragma integrity_check;"
+```
+
+The timer runs daily at 02:30 with a randomized delay. A dataset with `dumbdock.backup.disabled=true` is skipped by the monitor but still backed up if it carries the engine label — remove the label to stop dumping it.
 
 ## Help Tab
 
@@ -386,10 +524,11 @@ The active tab is reflected in the URL fragment, so a **refresh (Ctrl+R) keeps y
 | Networking | `/#networking` |
 | Traefik | `/#traefik` |
 | Issues | `/#issues` |
+| Storage | `/#storage` |
 | Icons | `/#icons` |
 | Help | `/#help` |
 
-The navigation order is Dashboard, Networking, Traefik, Issues, Icons, Help. The **By Compose / By Dependency** grouping toggle and **Copy JSON** control exist only on the Dashboard; switching tabs hides them without changing the saved grouping mode.
+The navigation order is Dashboard, Networking, Traefik, Issues, Storage, Icons, Help. The **By Compose / By Dependency** grouping toggle and **Copy JSON** control exist only on the Dashboard; switching tabs hides them without changing the saved grouping mode.
 
 Clicking a tab updates the fragment, which makes each tab **bookmarkable/shareable** and lets the browser **back/forward buttons** move between visited tabs. On load, the tab named by the fragment is restored immediately (its data is fetched after the auth check resolves, so no requests are made before login).
 
@@ -470,7 +609,13 @@ DUMBDOCK_PORT=8080
 | `DUMBDOCK_UPDATE_INTERVAL` | `6h` | How long a successful update check is cached before the image tag is re-checked. |
 | `DUMBDOCK_PASSWORD` | *(empty)* | Password for dashboard auth. With `DUMBDOCK_AUTH_MODE=http-auth` it enables HTTP Basic Authentication (any username accepted); with `web-auth` it is the login-form password. When an auth mode is active and this is empty, a random password is generated and logged once for the run. Auto-generated by `./control.sh setup`. |
 | `DUMBDOCK_AUTH_MODE` | `web-auth` | Authentication mode: `none`, `http-auth`, or `web-auth` (see [Authentication](#authentication)). Overrides `authMode` in `dumbdock.json`. Defaults to `web-auth`; set to `none` to disable auth. |
-| `DUMBDOCK_STATE_DIR` | `/data` | Directory for persisted runtime state — currently `issues-acknowledged.json` (mode `0600`). The Compose file mounts this as the `dumbdock-data` named volume so acknowledgements survive a restart. |
+| `DUMBDOCK_STATE_DIR` | `/data` | Directory for persisted runtime state — `issues-acknowledged.json` and `backup-reports.json` (mode `0600`). The Compose file mounts this as the `dumbdock-data` named volume so acknowledgements and reports survive a restart. |
+| `DUMBDOCK_CONTAINER_ROOT` | `/opt/containers` | Where compose projects are expected to live. A compose file outside `<root>/<project>/` is a Storage finding. Also `storage.containerRoot` in the config file. |
+| `DUMBDOCK_DATA_ROOT` | `/srv/containers` | Where persistent data is expected to live (`<root>/<project>/<service>/`). Also the default evidence root. Also `storage.dataRoot`. |
+| `DUMBDOCK_BACKUP_ROOT` | value of `DUMBDOCK_DATA_ROOT` | Read-only path scanned for `<project>/<service>/backups/` artifacts. Mount it into the container at the same path. Also `storage.backupRoot`. |
+| `DUMBDOCK_BACKUP_MAX_AGE` | `26h` | Default freshness window for a required backup. Overridden per dataset by `dumbdock.backup.max-age` or `storage.backups.<project>/<service>.maxAge`. |
+| `DUMBDOCK_BACKUP_SCAN_INTERVAL` | `5m` | How often inspects, the SQLite scan, and evidence collection run. Mounts and labels are still read on every 10s poll. |
+| `DUMBDOCK_BACKUP_TOKEN` | *(empty)* | Bearer token that lets a host backup script POST to `/api/backups/report` without a dashboard session. Grants report-write only; redacted in the startup log. |
 | `TRAEFIK_API_URL` | *(empty)* | Explicit Traefik API base URL. Overrides auto-discovery. |
 | `TRAEFIK_API_TOKEN` | *(empty)* | Bearer token for Traefik API authentication (sent as `Authorization: Bearer <token>`). Also accepted via `traefikAPIToken` in the config file. |
 | `TRAEFIK_API_USER` | *(empty)* | Username for Traefik Basic auth (use with `TRAEFIK_API_PASS`). |
@@ -715,6 +860,96 @@ Acknowledge or unacknowledge one finding. Both require the same authentication a
 ```bash
 curl -X POST -H 'X-Dumbdock-Request: issues' \
   http://127.0.0.1:8080/api/issues/<id>/acknowledge
+```
+
+**`GET /api/storage`**
+
+Returns the cached storage snapshot: one dataset per detected database, every writable mount on a compose-managed container, and the evidence-provider coverage. Like `/api/issues`, the handler only reads the snapshot built by the poll loop.
+
+```json
+{
+  "datasets": [
+    {
+      "key": "mwp/postgres",
+      "project": "mwp",
+      "service": "postgres",
+      "containerName": "mwp-postgres-1",
+      "containerId": "0123456789ab",
+      "engine": "postgres",
+      "database": "app",
+      "dataKind": "volume",
+      "dataDestination": "/var/lib/postgresql/data",
+      "dataPath": "mwp_pgdata",
+      "dataPathOk": false,
+      "dataIssue": "data-named-volume",
+      "expectedDataPath": "/srv/containers/mwp/postgres",
+      "backupDir": "/srv/containers/mwp/postgres/backups",
+      "policyMaxAge": "26h0m0s",
+      "policySource": "default",
+      "required": true,
+      "exempt": false,
+      "verdict": "missing",
+      "reason": "no backup evidence found",
+      "evidence": []
+    }
+  ],
+  "mounts": [
+    {
+      "project": "mwp", "service": "postgres", "containerName": "mwp-postgres-1",
+      "type": "volume", "source": "/var/lib/docker/volumes/mwp_pgdata/_data",
+      "destination": "/var/lib/postgresql/data", "rw": true,
+      "class": "volume", "expectedDataPath": "/srv/containers/mwp/postgres"
+    }
+  ],
+  "coverage": {
+    "collectionComplete": true,
+    "containerRoot": "/opt/containers",
+    "dataRoot": "/srv/containers",
+    "backupRoot": "/srv/containers",
+    "providers": [
+      {"name": "filesystem", "enabled": true, "configured": true, "lastCheckedAt": "2026-11-07T12:00:00Z"},
+      {"name": "backup-containers", "enabled": false, "configured": false},
+      {"name": "reports", "enabled": true, "configured": true}
+    ]
+  },
+  "checkedAt": "2026-11-07T12:00:00Z"
+}
+```
+
+`verdict` is `ok`, `stale`, `missing`, `unverified`, or `exempt`. `unverified` means no evidence provider is configured (or the dataset is not required) — it is never presented as a missing backup. The response contains no file contents, environment values, or label dumps.
+
+**`POST /api/backups/report`**
+
+Accepts one backup report. It requires authentication (a dashboard session **or** `Authorization: Bearer <DUMBDOCK_BACKUP_TOKEN>`) and the non-simple header `X-Dumbdock-Request: backups`. Only targets that currently exist as detected datasets are accepted, and the artifact is a bare file name — never a path.
+
+```json
+{
+  "target": "mwp/postgres",
+  "engine": "postgres",
+  "ok": true,
+  "at": "2026-11-07T02:30:12Z",
+  "artifact": "postgres-postgres-20261107T023012Z.sql.gz",
+  "detail": "pg_dump ok"
+}
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200` | Report stored |
+| `400` | Malformed body, artifact with a path separator/control character, engine mismatch, bad or too-old timestamp |
+| `403` | Missing `X-Dumbdock-Request: backups` |
+| `404` | `target` is not a currently detected dataset |
+| `413` | Body larger than 16 KiB |
+| `500` | The report could not be persisted |
+
+A future `at` (more than five minutes ahead of server time) is clamped to now. Reports for a dataset that no longer exists are pruned after 30 days.
+
+```bash
+curl -X POST -H 'X-Dumbdock-Request: backups' \
+  -H "Authorization: Bearer $DUMBDOCK_BACKUP_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"mwp/postgres","engine":"postgres","ok":true,"artifact":"app.sql.gz"}' \
+  http://127.0.0.1:8080/api/backups/report
 ```
 
 ### Supported Traefik version

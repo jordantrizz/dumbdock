@@ -29,9 +29,19 @@ services:
       # - GOTIFY_URL=https://gotify.example.com          # Gotify alert server
       # - GOTIFY_TOKEN=your-token                        # Gotify app token
       # - ALERT_COOLDOWN=5m                              # min time between alerts
+      # - DUMBDOCK_CONTAINER_ROOT=/opt/containers        # compose projects root (Storage tab)
+      # - DUMBDOCK_DATA_ROOT=/srv/containers             # persistent data root (Storage tab)
+      # - DUMBDOCK_BACKUP_ROOT=/srv/containers           # backup evidence root
+      # - DUMBDOCK_BACKUP_MAX_AGE=26h                    # default backup freshness window
+      # - DUMBDOCK_BACKUP_SCAN_INTERVAL=5m               # inspect/scan/evidence interval
+      # - DUMBDOCK_BACKUP_TOKEN=change-me                # report-write token for backup jobs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - dumbdock-data:/data # issue acknowledgements (mode 0600 inside the volume)
+      - dumbdock-data:/data # issue acknowledgements + backup reports (mode 0600)
+      # Read-only data root for Storage backup evidence. Optional: without it,
+      # datasets show as "unverified" instead of missing. Create the directory
+      # first; Docker would otherwise create it as root.
+      # - /srv/containers:/srv/containers:ro
       # - ./dumbdock.json:/config/dumbdock.json:ro     # override config (supports iconSets)
       # - ./my-icons/:/config/my-icons/:ro             # local icon index files
     healthcheck:

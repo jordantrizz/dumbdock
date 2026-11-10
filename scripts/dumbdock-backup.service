@@ -1,0 +1,18 @@
+[Unit]
+Description=dumbdock database backup (logical dumps)
+Documentation=https://github.com/jordantrizz/dumbdock
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Install the script as /usr/local/bin/dumbdock-backup and this file as
+# /etc/systemd/system/dumbdock-backup.service, then enable the timer.
+EnvironmentFile=-/etc/default/dumbdock-backup
+ExecStart=/usr/local/bin/dumbdock-backup
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=30min
