@@ -263,6 +263,25 @@ see README "Storage Tab" and "Backup Reference Job"):
   `- /srv/containers:/srv/containers:ro` mount (create the directory first); the local file may
   enable it. The fixed in-container port `8080` and the TCP healthcheck are unchanged.
 
+**Known limits / follow-ups:**
+
+* Only compose-managed containers are evaluated; a standalone `docker run` with a named volume is
+  invisible to the Storage tab. Extending it means defining what a "project" is for a standalone
+  container.
+* A bind mount of an application checkout (for example a dev tree at `/var/www/html`) is
+  indistinguishable from data by mount metadata alone. It is reported as *beside the compose
+  file* and the operator waives it with `dumbdock.storage.ignore`. A future heuristic could
+  compare the source against the compose `build.context`, but that needs the compose file parsed.
+* Evidence is freshness metadata only: a non-empty artifact from a broken `pg_dump` still counts.
+  Content verification stays with the operator (the README gives `pg_restore --list`,
+  `gzip -t`, and `sqlite3 "pragma integrity_check;"`).
+* SQLite detection scans the service data directory. Databases outside it need the
+  `dumbdock.backup.sqlite` label.
+* Host paths are meaningless for a remote Docker daemon; the tab should be documented as
+  local-socket only until a remote-path mapping exists.
+* MongoDB, Redis, and other engines are not detected. Adding one is a `dataEngine` constant, a
+  datadir list, and a dump branch in the reference script.
+
 ## Help Tab
 
 Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
