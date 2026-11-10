@@ -202,3 +202,88 @@ func TestFetchUnhealthyContainersErrorStatus(t *testing.T) {
 		t.Fatal("fetchUnhealthyContainers returned no error for a 502 response")
 	}
 }
+
+func TestFetchContainersDecodesMountsAndComposeLabels(t *testing.T) {
+	body := `[{
+		"Id":"0123456789abcdef",
+		"Names":["/mwp-postgres-1"],
+		"Image":"postgres:16",
+		"State":"running",
+		"Labels":{
+			"com.docker.compose.project":"mwp",
+			"com.docker.compose.service":"postgres",
+			"com.docker.compose.project.working_dir":"/home/user/git/mwp",
+			"com.docker.compose.project.config_files":"/opt/containers/mwp/docker-compose.yml,/opt/containers/mwp/docker-compose.override.yml"
+		},
+		"Mounts":[
+			{"Type":"bind","Source":"/srv/containers/mwp/postgres","Destination":"/var/lib/postgresql/data","RW":true},
+			{"Type":"volume","Name":"cache","Source":"/var/lib/docker/volumes/cache/_data","Destination":"/cache","RW":false}
+		]
+	}]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1.45/containers/json" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: rewriteTransport{target: srv.URL}, Timeout: 5 * time.Second}
+	got, err := fetchContainers(client, false)
+	if err != nil {
+		t.Fatalf("fetchContainers: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d containers", len(got))
+	}
+	c := got[0]
+	if c.composeProject() != "mwp" || c.composeService() != "postgres" {
+		t.Errorf("compose labels = %q/%q", c.composeProject(), c.composeService())
+	}
+	if c.composeWorkingDir() != "/home/user/git/mwp" {
+		t.Errorf("working dir = %q", c.composeWorkingDir())
+	}
+	if files := c.composeConfigFiles(); len(files) != 2 || files[1] != "/opt/containers/mwp/docker-compose.override.yml" {
+		t.Errorf("config files = %v", files)
+	}
+	if len(c.Mounts) != 2 {
+		t.Fatalf("mounts = %+v", c.Mounts)
+	}
+	if c.Mounts[0].Source != "/srv/containers/mwp/postgres" || !c.Mounts[0].RW {
+		t.Errorf("bind mount = %+v", c.Mounts[0])
+	}
+	if c.Mounts[1].Name != "cache" || c.Mounts[1].RW {
+		t.Errorf("volume mount = %+v", c.Mounts[1])
+	}
+}
+
+func TestFetchContainerInspect(t *testing.T) {
+	body := `{
+		"Id":"0123456789abcdef",
+		"Config":{"Image":"postgres:16","Env":["POSTGRES_DB=app","POSTGRES_PASSWORD=secret"],"Labels":{"dumbdock.backup.engine":"postgres"}},
+		"State":{"Status":"exited","ExitCode":0,"FinishedAt":"2026-11-07T02:30:12Z"},
+		"Mounts":[{"Type":"bind","Source":"/srv/containers/mwp/postgres","Destination":"/var/lib/postgresql/data","RW":true}]
+	}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1.45/containers/0123456789abcdef/json" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: rewriteTransport{target: srv.URL}, Timeout: 5 * time.Second}
+	got, err := fetchContainerInspect(client, "0123456789abcdef")
+	if err != nil {
+		t.Fatalf("fetchContainerInspect: %v", err)
+	}
+	if got.State.ExitCode != 0 || got.State.Status != "exited" {
+		t.Errorf("state = %+v", got.State)
+	}
+	if envValue(got.Config.Env, "POSTGRES_DB") != "app" {
+		t.Errorf("env POSTGRES_DB not decoded")
+	}
+	if len(got.Mounts) != 1 || got.Mounts[0].Destination != "/var/lib/postgresql/data" {
+		t.Errorf("mounts = %+v", got.Mounts)
+	}
+}

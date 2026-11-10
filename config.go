@@ -28,6 +28,7 @@ type overrideConfig struct {
 	TraefikAPIToken            string                  `json:"traefikAPIToken,omitempty"`
 	UpdateCheck                *bool                   `json:"updateCheck,omitempty"`
 	AuthMode                   string                  `json:"authMode,omitempty"`
+	Storage                    *storageSettings        `json:"storage,omitempty"`
 }
 
 func loadConfig(path string) (*overrideConfig, error) {

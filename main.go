@@ -107,6 +107,10 @@ func main() {
 		log.Printf("warning: config: %s: %s", w.Field, w.Message)
 	}
 
+	// Storage and backup convention settings. The read-only data root is
+	// inspected only by the background poll.
+	storageCfg := resolveStorageConfig(cfg)
+
 	// Session store for web-auth mode; initialized in the auth dispatch below.
 	var webSessions *sessionStore
 
@@ -649,6 +653,12 @@ func main() {
 		TraefikAPIToken:    os.Getenv("TRAEFIK_API_TOKEN"),
 		TraefikAPIUser:     os.Getenv("TRAEFIK_API_USER"),
 		TraefikAPIPass:     os.Getenv("TRAEFIK_API_PASS"),
+		ContainerRoot:      storageCfg.ContainerRoot,
+		DataRoot:           storageCfg.DataRoot,
+		BackupRoot:         storageCfg.BackupRoot,
+		BackupMaxAge:       storageCfg.DefaultMaxAge,
+		BackupScanInterval: storageCfg.ScanInterval,
+		BackupToken:        os.Getenv("DUMBDOCK_BACKUP_TOKEN"),
 	})
 
 	log.Fatal(http.ListenAndServe(listenAddr, handler))

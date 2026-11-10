@@ -128,6 +128,11 @@ func TestValidateConfig(t *testing.T) {
 			"DUMBDOCK_PORT",
 			"LISTEN_ADDR",
 			"DUMBDOCK_STATE_DIR",
+			"DUMBDOCK_CONTAINER_ROOT",
+			"DUMBDOCK_DATA_ROOT",
+			"DUMBDOCK_BACKUP_ROOT",
+			"DUMBDOCK_BACKUP_MAX_AGE",
+			"DUMBDOCK_BACKUP_SCAN_INTERVAL",
 		} {
 			t.Setenv(k, "")
 		}
@@ -203,6 +208,20 @@ func TestValidateConfig(t *testing.T) {
 			}},
 			authMode:   "none",
 			wantFields: []string{"iconSets[0]", "iconSets[0]", "iconSets[0]"},
+		},
+		{
+			name:       "invalid storage root",
+			cfg:        &overrideConfig{},
+			authMode:   "none",
+			env:        map[string]string{"DUMBDOCK_DATA_ROOT": "relative/data"},
+			wantFields: []string{"DUMBDOCK_DATA_ROOT", "DUMBDOCK_BACKUP_ROOT"},
+		},
+		{
+			name:       "invalid backup max age",
+			cfg:        &overrideConfig{},
+			authMode:   "none",
+			env:        map[string]string{"DUMBDOCK_BACKUP_MAX_AGE": "nope"},
+			wantFields: []string{"DUMBDOCK_BACKUP_MAX_AGE"},
 		},
 		{
 			name: "valid icon set entry",
