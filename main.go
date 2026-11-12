@@ -187,10 +187,10 @@ func main() {
 		dockerReleases.startRefresh()
 		latest, lastChecked, releaseErr := dockerReleases.status()
 
-		traefikFound, _, traefikData, traefikErr := getTraefikState()
+		traefik := getTraefikState()
 
 		containerIssues, containerWarnings, containersComplete := collectContainerIssues(allCards, unhealthy, healthErr, denylist)
-		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefikFound, traefikData, traefikErr)
+		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefik.Found, traefik.Data, traefik.Err)
 		versionIssues, versionCoverage := collectDockerVersionIssue(daemon, daemonErr, latest, lastChecked, releaseErr)
 
 		found := make([]hostIssue, 0, len(containerIssues)+len(traefikIssues)+len(versionIssues))
@@ -581,12 +581,12 @@ func main() {
 	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
-		found, url, data, errStr := getTraefikState()
+		snap := getTraefikState()
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"found":  found,
-			"apiUrl": url,
-			"data":   data,
-			"error":  errStr,
+			"found":  snap.Found,
+			"apiUrl": snap.APIURL,
+			"data":   snap.Data,
+			"error":  snap.Err,
 		})
 	})
 

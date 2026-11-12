@@ -199,17 +199,79 @@ type traefikTLSCertificate struct {
 // Global state (updated by the refresh goroutine, read by the HTTP handler)
 // ---------------------------------------------------------------------------
 
+// traefikAttemptLimit is the number of availability attempts the boot gate
+// allows before Traefik API work is disabled for the life of the process.
+const traefikAttemptLimit = 3
+
+// traefikGate is the boot gate that bounds Traefik API availability attempts.
+// It counts a failed attempt only until the first fetch returns at least one
+// answered endpoint; a success disarms it permanently for this process, so
+// later outages keep the normal recovery behavior. A disabled gate is cleared
+// only by restarting dumbdock.
+type traefikGate struct {
+	attempts       int
+	disabled       bool
+	disabledReason string
+	passed         bool
+}
+
+// fail records one failed availability attempt and reports the attempt number
+// plus whether this attempt disabled the gate. It is a no-op once the gate has
+// passed or is already disabled.
+func (g *traefikGate) fail(reason string) (attempt int, disabled bool) {
+	if g.passed || g.disabled {
+		return 0, false
+	}
+	g.attempts++
+	if g.attempts >= traefikAttemptLimit {
+		g.disabled = true
+		g.disabledReason = reason
+		return g.attempts, true
+	}
+	return g.attempts, false
+}
+
+// pass disarms the gate for the rest of the process. It never re-enables a
+// disabled gate.
+func (g *traefikGate) pass() {
+	if g.disabled {
+		return
+	}
+	g.passed = true
+}
+
+// shouldAttempt reports whether Traefik API work is still permitted.
+func (g *traefikGate) shouldAttempt() bool { return !g.disabled }
+
 var (
 	traefikMu             sync.RWMutex
 	traefikContainerFound bool
 	traefikAPIURL         string
 	traefikData           *traefikDashboardData
 	traefikDataErr        string
+	// traefikGateState is the boot attempt budget. It is process state: a
+	// restart is the only way to re-arm it.
+	traefikGateState traefikGate
 	// Log-dedup state: the API error signature and reachability from the last
 	// refresh, so repeated failures do not spam the log on every poll.
 	traefikLastErrSig    string
 	traefikLastReachable bool
 )
+
+// resetTraefikState clears the Traefik cache, log-dedup state, and boot gate.
+// It exists for tests so each case starts from a fresh process-like state; it
+// is never called from production code.
+func resetTraefikState() {
+	traefikMu.Lock()
+	defer traefikMu.Unlock()
+	traefikContainerFound = false
+	traefikAPIURL = ""
+	traefikData = nil
+	traefikDataErr = ""
+	traefikLastErrSig = ""
+	traefikLastReachable = false
+	traefikGateState = traefikGate{}
+}
 
 // traefikEndpointNames is the fixed set of Traefik API endpoints fetched by
 // fetchTraefikDashboard.  It is used to detect when every endpoint failed.
@@ -286,11 +348,50 @@ func traefikLogSignature(data *traefikDashboardData, allFailed bool) string {
 	return marker + "|" + errSig
 }
 
+// traefikSnapshot is the consistent view of the Traefik state that the HTTP
+// handler and the issues collector consume. It is the only shape callers see,
+// so no caller reads the package globals directly.
+type traefikSnapshot struct {
+	Found          bool
+	APIURL         string
+	Data           *traefikDashboardData
+	Err            string
+	Disabled       bool
+	DisabledReason string
+	Attempts       int
+	AttemptLimit   int
+}
+
 // getTraefikState returns a snapshot of the current Traefik state.
-func getTraefikState() (found bool, url string, data *traefikDashboardData, errStr string) {
+func getTraefikState() traefikSnapshot {
 	traefikMu.RLock()
 	defer traefikMu.RUnlock()
-	return traefikContainerFound, traefikAPIURL, traefikData, traefikDataErr
+	return traefikSnapshot{
+		Found:          traefikContainerFound,
+		APIURL:         traefikAPIURL,
+		Data:           traefikData,
+		Err:            traefikDataErr,
+		Disabled:       traefikGateState.disabled,
+		DisabledReason: traefikGateState.disabledReason,
+		Attempts:       traefikGateState.attempts,
+		AttemptLimit:   traefikAttemptLimit,
+	}
+}
+
+// traefikRecordFailureLocked logs one failed boot attempt and, when this
+// attempt spent the last one, the single disable line. The caller must hold
+// traefikMu. A gate that has already passed or is disabled records nothing:
+// post-boot failures keep the existing state-change logging instead.
+func traefikRecordFailureLocked(reason string) {
+	attempt, disabled := traefikGateState.fail(reason)
+	if attempt == 0 {
+		return
+	}
+	log.Printf("traefik: attempt %d/%d failed: %s", attempt, traefikAttemptLimit, reason)
+	if disabled {
+		log.Printf("traefik: unable to access Traefik API after %d attempts — disabled until dumbdock restarts: %s",
+			traefikAttemptLimit, reason)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -725,7 +826,17 @@ func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg
 	traefikMu.Lock()
 	defer traefikMu.Unlock()
 
+	// Once the boot gate is disabled no Traefik API work happens until the
+	// process restarts. Container detection stays free: it reads the list the
+	// poll already fetched, so the dashboard still knows a container exists.
+	if !traefikGateState.shouldAttempt() {
+		traefikContainerFound = container != nil
+		return
+	}
+
 	if container == nil {
+		// Nothing to reach yet, so no attempt is spent: a Traefik that starts
+		// after dumbdock still gets its three attempts.
 		traefikContainerFound = false
 		traefikAPIURL = ""
 		traefikData = nil
@@ -738,26 +849,36 @@ func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg
 	// Inspect the container.
 	inspect, err := inspectTraefikContainer(dockerClient, container.ID)
 	if err != nil {
+		reason := fmt.Sprintf("inspection failed: %v", err)
 		traefikContainerFound = true
 		traefikAPIURL = ""
 		traefikData = nil
-		traefikDataErr = fmt.Sprintf("inspection failed: %v", err)
+		traefikDataErr = reason
 		traefikLastErrSig = ""
 		traefikLastReachable = false
-		log.Printf("traefik: inspect %s (%s): %v", containerName(*container), container.ID[:12], err)
+		if traefikGateState.passed {
+			log.Printf("traefik: inspect %s (%s): %v", containerName(*container), container.ID[:12], err)
+		} else {
+			traefikRecordFailureLocked(reason)
+		}
 		return
 	}
 
 	// Resolve API URL.
 	apiURL, err := resolveTraefikAPIURL(inspect)
 	if err != nil {
+		reason := fmt.Sprintf("resolve API URL: %v", err)
 		traefikContainerFound = true
 		traefikAPIURL = ""
 		traefikData = nil
-		traefikDataErr = fmt.Sprintf("resolve API URL: %v", err)
+		traefikDataErr = reason
 		traefikLastErrSig = ""
 		traefikLastReachable = false
-		log.Printf("traefik: resolve URL for %s: %v", containerName(*container), err)
+		if traefikGateState.passed {
+			log.Printf("traefik: resolve URL for %s: %v", containerName(*container), err)
+		} else {
+			traefikRecordFailureLocked(reason)
+		}
 		return
 	}
 	traefikAPIURL = apiURL
@@ -810,9 +931,14 @@ func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg
 		traefikDataErr = ""
 	}
 
-	// Log endpoint errors only when the error set changes, so an unreachable
-	// API does not emit the same lines on every poll.
-	if combinedSig != traefikLastErrSig {
+	gateWasPassed := traefikGateState.passed
+
+	// Boot gate: while it is still armed, a failed fetch spends one attempt and
+	// logs exactly one line. The per-endpoint lines below stay for the
+	// post-boot path, where a recovery is still worth reporting.
+	if allFailed && !gateWasPassed {
+		traefikRecordFailureLocked(fmt.Sprintf("API unreachable at %s: %s", apiURL, firstErr))
+	} else if combinedSig != traefikLastErrSig {
 		if errSig == "" {
 			if traefikLastErrSig != "" {
 				log.Printf("traefik: API recovered at %s", apiURL)
@@ -834,6 +960,12 @@ func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg
 			log.Printf("traefik: unsupported version %q (only v%d is supported) at %s",
 				data.Version.Version, traefikSupportedMajorVersion, apiURL)
 		}
+	}
+
+	// The first fetch that answered at least one endpoint disarms the boot gate
+	// permanently.
+	if !allFailed {
+		traefikGateState.pass()
 	}
 
 	// Log a success line only when the API becomes reachable (first success or
