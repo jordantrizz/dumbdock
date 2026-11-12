@@ -155,10 +155,24 @@ Implemented 2026-09-23 (`traefik.go`, `traefik_test.go`; see README "Traefik Das
   `traefikLogSignature` (version marker + error signature), and must never hard-block the
   dashboard or be reported as `API unreachable`. `traefikSupportedMajorVersion` is the single
   source of the supported major (3); bump it only with a deliberate compatibility decision.
+* **Boot attempt gate.** Traefik availability is bounded by `traefikAttemptLimit` (3) in
+  `traefik.go`. `traefikGate` counts one attempt per poll for the three availability failures —
+  container inspect error, `resolveTraefikAPIURL` error, and `allEndpointFetchesFailed` after the
+  bounded candidate probe — and `traefikGate.pass()` permanently disarms it the first time any
+  endpoint answers, so a post-boot outage keeps the normal recovery path. The third failure sets
+  `disabled`, disables all inspect/resolve/probe/fetch work for the life of the process, and logs
+  exactly one `traefik: unable to access Traefik API after 3 attempts — disabled until dumbdock
+  restarts: <reason>` line; later polls update only `traefikContainerFound` from the already-fetched
+  container list and log nothing. A poll with no Traefik container spends no attempt, and the gate
+  is process state — only a restart re-arms it. Do not add a manual retry, a config key, or an env
+  var for the budget. Every availability failure path must route through the gate; the
+  three-attempt rule lives only in `traefikAttemptLimit`.
 * **Log only on state change.** Endpoint errors and the unreachable warning are logged once per
   error-signature change (`traefikErrorSignature`, deterministic across map order), with a single
   `traefik: API recovered at <url>` on transition back to healthy. Do not log a success
-  `detected …` line while all endpoints are failing, and never on every poll.
+  `detected …` line while all endpoints are failing, and never on every poll. While the boot gate
+  is still armed, a failed fetch logs the single `attempt N/3 failed` line instead of the
+  per-endpoint lines.
 * **Fallback probing is bounded and unauthenticated.** When all endpoints fail, `traefikCandidateURLs`
   yields ordered, de-duplicated candidates (primary, published `8080/tcp`, container IP `:8081`,
   other published TCP ports); `probeTraefikAPIURL` does a 2s `GET /api/version` with no credentials
@@ -195,6 +209,15 @@ see README "Issues Tab"):
   is gone; incomplete collection must retain it (`issues-acknowledged.json`, mode `0600`,
   same-directory temp file + `rename`). Set `collectionComplete=false` on any Docker health or
   Traefik endpoint failure.
+* **A disabled Traefik gate is complete coverage, not a failure.** While the boot attempt gate is
+  disabled (`traefikSnapshot.Disabled`), `collectTraefikIssues` emits exactly one `traefik-api`
+  error row with the stable `newIssueID(categoryTraefikAPI, "traefik", "api")` ID, title
+  `Traefik API unavailable (disabled until restart)`, and the stored reason as detail — even when
+  the container has since disappeared — and returns `complete = true` with the warning
+  `traefik: API disabled after 3 attempts (restart dumbdock to retry)`. The disable is a terminal,
+  operator-visible coverage cap, so it must not freeze acknowledgement pruning for every other
+  category; this is the one deliberate exception to the rule above. No entity, backend, version,
+  or partial-endpoint rows are produced for a disabled API.
 * **State dir.** `DUMBDOCK_STATE_DIR` defaults to `/data` and is mounted as the `dumbdock-data`
   volume in both compose files. It is a non-secret path; it must appear in `startupConfig`,
   `validateConfig` (advisory only), and `logStartupConfig`.

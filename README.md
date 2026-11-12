@@ -297,7 +297,7 @@ services:
 
 ## Traefik Dashboard
 
-The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting. dumbdock requires **Traefik v3**; other major versions display an "Unsupported Traefik version" error (see [Supported Traefik version](#supported-traefik-version)).
+The **Traefik** tab is **always visible** in the navigation bar. When a running Traefik container is detected (image name containing "traefik"), clicking the tab displays a full status dashboard fetched from the Traefik API. If no Traefik container is running, the tab shows standard install guidance (including a `docker run` example); if a Traefik container is detected but the API is unreachable, it shows the general error with the resolved API URL for troubleshooting, and a boot-time failure is bounded by the [Boot Attempt Gate](#boot-attempt-gate). dumbdock requires **Traefik v3**; other major versions display an "Unsupported Traefik version" error (see [Supported Traefik version](#supported-traefik-version)).
 
 ### Auto-Discovery
 
@@ -310,7 +310,24 @@ dumbdock automatically finds the Traefik API URL using a fallback chain:
 
 **Fallback probing:** if every Traefik API endpoint fails at the primary (container-IP) URL, dumbdock probes candidate URLs in order — the published `8080/tcp` host port, the container IP on `8081` (Traefik's default insecure API entrypoint), and any other published TCP port — and adopts the first one that answers `/api/version`. Probing uses a 2s timeout, sends no credentials, and runs at most once per poll.
 
-If none of these succeed, the Traefik tab shows an error explaining that the API URL could not be resolved.
+If none of these succeed, the first three polls each spend one availability attempt; once the boot budget is gone the tab shows the disabled banner described below.
+
+### Boot Attempt Gate
+
+Traefik API availability is checked at boot, not forever. When a running Traefik container cannot be used — the container inspect fails, no API URL can be resolved, or all nine endpoint fetches fail after the fallback probe — dumbdock spends one attempt. One poll is one attempt, so at the default 10-second interval the whole budget is spent in about 30 seconds.
+
+After the third failed attempt dumbdock logs exactly one line and stops all Traefik API work for the life of the process:
+
+```text
+traefik: unable to access Traefik API after 3 attempts — disabled until dumbdock restarts: <reason>
+```
+
+The Traefik tab then shows an **Unable to access Traefik API** banner with that reason, the attempt count, and no Retry button; the Issues tab carries exactly one stable `traefik-api` finding (see [Issues Tab](#issues-tab)). **Restarting the dumbdock container re-arms the gate** — the three attempts run again. There is no setting for the budget and no in-place retry.
+
+- A poll with no Traefik container spends no attempt, so a Traefik that starts after dumbdock still gets its full budget.
+- The first fetch where at least one endpoint answers permanently disarms the gate for that process. A later Traefik outage keeps the normal behavior described under [Traefik API Enablement](#traefik-api-enablement): one log line per error-state change, and `traefik: API recovered` when it returns.
+- While the gate is disabled, dumbdock still detects a Traefik container from the container list the poll already fetched, but it performs no inspect, no URL resolution, no probe, and no API request.
+- `GET /api/traefik` reports `disabled`, `disabledReason`, `attempts`, and `attemptLimit` beside the existing `found`, `apiUrl`, `data`, and `error` fields.
 
 ### Data Displayed
 
@@ -339,7 +356,7 @@ dumbdock reads Traefik's read-only API, which must be enabled and listening wher
 - **Insecure entrypoint:** start Traefik with `--api.insecure=true` so the dashboard/API is served on the `traefik` entrypoint (default port `8080`).
 - **Secured API:** expose the `api@internal` service through a router (optionally with auth), and point dumbdock at it with `TRAEFIK_API_URL` or the `dumbdock.traefik.api` label.
 
-When the API is entirely unreachable, dumbdock logs the failure **once per error-state change** (not on every poll), logs a single `traefik: API recovered` line when it comes back, and the Traefik tab shows a "container detected but API is not accessible" banner containing the resolved API URL and the underlying error.
+When the API is entirely unreachable **after the boot gate has been passed**, dumbdock logs the failure **once per error-state change** (not on every poll), logs a single `traefik: API recovered` line when it comes back, and the Traefik tab shows a "container detected but API is not accessible" banner containing the resolved API URL and the underlying error. During boot the gate applies instead (see [Boot Attempt Gate](#boot-attempt-gate)).
 
 ### API Authentication
 
@@ -786,6 +803,10 @@ Returns Traefik detection and status data:
   "found": true,
   "apiUrl": "http://172.17.0.2:8080",
   "error": "",
+  "disabled": false,
+  "disabledReason": "",
+  "attempts": 0,
+  "attemptLimit": 3,
   "data": {
     "apiUrl": "http://172.17.0.2:8080",
     "authConfigured": false,
@@ -809,7 +830,7 @@ Returns Traefik detection and status data:
 }
 ```
 
-When no Traefik container is found, `found` is `false` and `data` is `null`.
+When no Traefik container is found, `found` is `false` and `data` is `null`. When the boot attempt gate is disabled, `disabled` is `true`, `disabledReason` holds the last failure, `attempts`/`attemptLimit` report the spent budget (for example `3` and `3`), and `data` stays `null` until the process restarts.
 
 **`GET /api/issues`**
 
