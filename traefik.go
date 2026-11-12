@@ -378,6 +378,22 @@ func getTraefikState() traefikSnapshot {
 	}
 }
 
+// traefikAPIResponse builds the JSON payload of GET /api/traefik from a
+// snapshot. It lives here so the handler stays a cache read and the payload
+// shape is testable without an HTTP server.
+func traefikAPIResponse(snap traefikSnapshot) map[string]interface{} {
+	return map[string]interface{}{
+		"found":          snap.Found,
+		"apiUrl":         snap.APIURL,
+		"data":           snap.Data,
+		"error":          snap.Err,
+		"disabled":       snap.Disabled,
+		"disabledReason": snap.DisabledReason,
+		"attempts":       snap.Attempts,
+		"attemptLimit":   snap.AttemptLimit,
+	}
+}
+
 // traefikRecordFailureLocked logs one failed boot attempt and, when this
 // attempt spent the last one, the single disable line. The caller must hold
 // traefikMu. A gate that has already passed or is disabled records nothing:

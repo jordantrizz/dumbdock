@@ -1928,6 +1928,19 @@ async function loadTraefik() {
 function renderTraefik(resp) {
   var container = document.getElementById('traefik-app');
 
+  // A disabled boot gate is terminal for this run: the three startup attempts
+  // failed, so no retry is offered until the dumbdock container restarts.
+  if (resp.disabled) {
+    var disabledReason = escapeHtml(resp.disabledReason || resp.error || 'unknown error');
+    var attempts = (typeof resp.attempts === 'number' ? resp.attempts : 3) + ' of ' +
+      (typeof resp.attemptLimit === 'number' ? resp.attemptLimit : 3);
+    container.innerHTML = '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body">' +
+      '<div class="err-title">Unable to access Traefik API</div>' +
+      '<div class="err-detail">Traefik API checks are disabled for this run after ' + escapeHtml(attempts) +
+      ' failed attempts — restart the dumbdock container to try again.<br>' + disabledReason + '</div></div></div>';
+    return;
+  }
+
   if (!resp.found) {
     container.innerHTML = '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body"><div class="err-title">Traefik not detected</div><div class="err-detail">No running container with "traefik" in its image name was found. Start a Traefik container to enable the dashboard, for example:<code class="traefik-code">docker run -d --name traefik -p 8080:8080 -p 80:80 -v /var/run/docker.sock:/var/run/docker.sock traefik:v3</code></div><button class="err-retry" onclick="loadTraefik()">Retry</button></div></div>';
     return;

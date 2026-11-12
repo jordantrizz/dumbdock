@@ -658,8 +658,32 @@ func collectContainerIssues(cards []containerCard, unhealthy []dockerContainer, 
 
 // collectTraefikIssues turns the current Traefik state into findings. A missing
 // Traefik container is guidance, not an issue; a 404/not-configured endpoint is
-// informational, not a finding.
-func collectTraefikIssues(found bool, data *traefikDashboardData, errStr string) ([]hostIssue, []string, bool) {
+// informational, not a finding. A disabled boot gate is one terminal finding
+// and still counts as a complete collection, so acknowledgements in every other
+// category keep pruning while the API stays disabled for this run.
+func collectTraefikIssues(s traefikSnapshot) ([]hostIssue, []string, bool) {
+	if s.Disabled {
+		limit := s.AttemptLimit
+		if limit <= 0 {
+			limit = traefikAttemptLimit
+		}
+		detail := strings.TrimSpace(s.DisabledReason)
+		if detail == "" {
+			detail = fmt.Sprintf("Traefik API disabled after %d attempts", limit)
+		}
+		return []hostIssue{{
+				ID:       newIssueID(categoryTraefikAPI, "traefik", "api"),
+				Category: categoryTraefikAPI,
+				Severity: severityError,
+				Title:    "Traefik API unavailable (disabled until restart)",
+				Detail:   truncateForLog(detail, 300),
+				Source:   "traefik",
+			}}, []string{fmt.Sprintf("traefik: API disabled after %d attempts (restart dumbdock to retry)", limit)}, true
+	}
+
+	found := s.Found
+	data := s.Data
+	errStr := s.Err
 	if !found {
 		return nil, nil, true
 	}

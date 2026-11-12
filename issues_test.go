@@ -507,7 +507,7 @@ type errTest string
 func (e errTest) Error() string { return string(e) }
 
 func TestCollectTraefikIssuesNotDetected(t *testing.T) {
-	issues, warnings, complete := collectTraefikIssues(false, nil, "")
+	issues, warnings, complete := collectTraefikIssues(traefikSnapshot{})
 	if len(issues) != 0 || len(warnings) != 0 || !complete {
 		t.Errorf("no-Traefik state produced issues=%v warnings=%v complete=%v", issues, warnings, complete)
 	}
@@ -518,7 +518,7 @@ func TestCollectTraefikIssuesUnreachable(t *testing.T) {
 	for _, name := range traefikEndpointNames {
 		data.EndpointErrors[name] = "connection refused"
 	}
-	issues, warnings, complete := collectTraefikIssues(true, data, "API unreachable at http://traefik:8080: connection refused")
+	issues, warnings, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data, Err: "API unreachable at http://traefik:8080: connection refused"})
 	if complete {
 		t.Error("complete = true for an unreachable API")
 	}
@@ -530,11 +530,63 @@ func TestCollectTraefikIssuesUnreachable(t *testing.T) {
 	}
 }
 
-func TestCollectTraefikIssuesPartialEndpointErrors(t *testing.T) {
-	data := &traefikDashboardData{
+func TestCollectTraefikIssuesDisabled(t *testing.T) {
+	snap := traefikSnapshot{
+		Found:          true,
+		Disabled:       true,
+		DisabledReason: "resolve API URL: no label, no env var, no network IP, and no published port found",
+		Attempts:       3,
+		AttemptLimit:   3,
+	}
+	issues, warnings, complete := collectTraefikIssues(snap)
+	if !complete {
+		t.Error("complete = false for a disabled boot gate; acknowledgements would never prune")
+	}
+	if len(issues) != 1 {
+		t.Fatalf("issues = %+v, want exactly one", issues)
+	}
+	got := issues[0]
+	if got.Category != categoryTraefikAPI || got.Severity != severityError {
+		t.Fatalf("issue = %+v, want a traefik-api error", got)
+	}
+	if got.Title != "Traefik API unavailable (disabled until restart)" {
+		t.Fatalf("title = %q", got.Title)
+	}
+	if !strings.Contains(got.Detail, "resolve API URL") {
+		t.Fatalf("detail = %q, want the stored reason", got.Detail)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "disabled after 3 attempts") {
+		t.Fatalf("warnings = %v", warnings)
+	}
+
+	// The ID is stable whether or not the container is still visible, so an
+	// acknowledgement survives the container disappearing.
+	withoutContainer := snap
+	withoutContainer.Found = false
+	again, _, _ := collectTraefikIssues(withoutContainer)
+	if len(again) != 1 || again[0].ID != got.ID {
+		t.Fatalf("disabled issue ID changed with container state: %+v vs %+v", again, got)
+	}
+
+	// A disabled gate never renders entity or backend rows from stale data.
+	withData := snap
+	withData.Data = &traefikDashboardData{
+		Version:          &traefikVersion{Version: "v3.7.13"},
+		VersionSupported: true,
+		MajorVersion:     3,
+		HTTPRouters:      []traefikRouter{{Name: "off", Status: "disabled"}},
+		HTTPServices:     []traefikService{{Name: "api", Status: "disabled", ServerStatus: map[string]string{"http://a": "DOWN"}}},
+	}
+	rows, _, _ := collectTraefikIssues(withData)
+	if len(rows) != 1 || rows[0].ID != got.ID {
+		t.Fatalf("disabled gate produced extra rows: %+v", rows)
+	}
+}
+
+func TestCollectTraefikIssuesPartialEndpointErrors(t *testing.T) {	data := &traefikDashboardData{
 		EndpointErrors: map[string]string{"tlsCerts": "timeout"},
 	}
-	issues, _, complete := collectTraefikIssues(true, data, "")
+	issues, _, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data})
 	if complete {
 		t.Error("complete = true with a partial endpoint failure")
 	}
@@ -545,7 +597,7 @@ func TestCollectTraefikIssuesPartialEndpointErrors(t *testing.T) {
 
 func TestCollectTraefikIssuesNotConfiguredIsNotAFinding(t *testing.T) {
 	data := &traefikDashboardData{NotConfigured: []string{"tlsCerts"}}
-	issues, warnings, complete := collectTraefikIssues(true, data, "")
+	issues, warnings, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data})
 	if len(issues) != 0 || len(warnings) != 0 || !complete {
 		t.Errorf("not-configured endpoint produced issues=%v warnings=%v complete=%v", issues, warnings, complete)
 	}
@@ -557,7 +609,7 @@ func TestCollectTraefikIssuesUnsupportedVersion(t *testing.T) {
 		MajorVersion:   2,
 		VersionSupported: false,
 	}
-	issues, _, complete := collectTraefikIssues(true, data, "")
+	issues, _, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data})
 	if !complete {
 		t.Error("complete = false for a supported-API host running an unsupported version")
 	}
@@ -585,7 +637,7 @@ func TestCollectTraefikIssuesEntitiesAndBackends(t *testing.T) {
 		Middlewares: []traefikMiddleware{{Name: "auth", Status: "disabled"}},
 	}
 
-	issues, warnings, complete := collectTraefikIssues(true, data, "")
+	issues, warnings, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data})
 	if !complete || len(warnings) != 0 {
 		t.Errorf("healthy API produced warnings=%v complete=%v", warnings, complete)
 	}

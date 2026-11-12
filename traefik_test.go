@@ -322,7 +322,7 @@ func TestTraefikStateFeedsIssues(t *testing.T) {
 	traefikMu.Unlock()
 
 	snap := getTraefikState()
-	issues, _, complete := collectTraefikIssues(snap.Found, snap.Data, snap.Err)
+	issues, _, complete := collectTraefikIssues(snap)
 	if !complete {
 		t.Fatal("a healthy snapshot was reported as incomplete")
 	}
@@ -347,6 +347,36 @@ func traefikTestInspectResponse(t *testing.T, body string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestTraefikAPIResponseCarriesDisabledFields(t *testing.T) {
+	resp := traefikAPIResponse(traefikSnapshot{
+		Found:          true,
+		APIURL:         "",
+		Err:            "resolve API URL: no label",
+		Disabled:       true,
+		DisabledReason: "resolve API URL: no label",
+		Attempts:       traefikAttemptLimit,
+		AttemptLimit:   traefikAttemptLimit,
+	})
+
+	if resp["disabled"] != true {
+		t.Fatalf("disabled = %v, want true", resp["disabled"])
+	}
+	if resp["disabledReason"] != "resolve API URL: no label" {
+		t.Fatalf("disabledReason = %v", resp["disabledReason"])
+	}
+	if resp["attempts"] != traefikAttemptLimit || resp["attemptLimit"] != traefikAttemptLimit {
+		t.Fatalf("attempt fields = %v/%v", resp["attempts"], resp["attemptLimit"])
+	}
+	if resp["found"] != true {
+		t.Fatalf("found = %v, want true", resp["found"])
+	}
+	for _, key := range []string{"found", "apiUrl", "data", "error", "disabled", "disabledReason", "attempts", "attemptLimit"} {
+		if _, ok := resp[key]; !ok {
+			t.Fatalf("payload is missing %q: %+v", key, resp)
+		}
 	}
 }
 

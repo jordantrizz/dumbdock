@@ -190,7 +190,7 @@ func main() {
 		traefik := getTraefikState()
 
 		containerIssues, containerWarnings, containersComplete := collectContainerIssues(allCards, unhealthy, healthErr, denylist)
-		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefik.Found, traefik.Data, traefik.Err)
+		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefik)
 		versionIssues, versionCoverage := collectDockerVersionIssue(daemon, daemonErr, latest, lastChecked, releaseErr)
 
 		found := make([]hostIssue, 0, len(containerIssues)+len(traefikIssues)+len(versionIssues))
@@ -582,12 +582,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
 		snap := getTraefikState()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"found":  snap.Found,
-			"apiUrl": snap.APIURL,
-			"data":   snap.Data,
-			"error":  snap.Err,
-		})
+		json.NewEncoder(w).Encode(traefikAPIResponse(snap))
 	})
 
 	mux.HandleFunc("GET /api/icons", func(w http.ResponseWriter, r *http.Request) {
