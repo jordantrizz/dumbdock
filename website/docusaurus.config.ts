@@ -91,7 +91,7 @@ const config: Config = {
           items: [
             {
               label: 'Your first dashboard',
-              to: '/guides/start',
+              to: '/getting-started/first-dashboard',
             },
           ],
         },
