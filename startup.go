@@ -77,6 +77,32 @@ func validateConfig(cfg *overrideConfig, loadErr error, authMode string) []confi
 		}
 	}
 
+	if msg := validateStateDir(stateDir()); msg != "" {
+		warnings = append(warnings, configWarning{
+			Field:   "DUMBDOCK_STATE_DIR",
+			Message: msg,
+		})
+	}
+
+	warnings = append(warnings, validateStorageConfig(resolveStorageConfig(cfg))...)
+
+	for _, d := range []struct {
+		name string
+		def  time.Duration
+	}{
+		{"DUMBDOCK_BACKUP_MAX_AGE", defaultBackupMaxAge},
+		{"DUMBDOCK_BACKUP_SCAN_INTERVAL", defaultStorageScanInterval},
+	} {
+		if s := os.Getenv(d.name); s != "" {
+			if v, err := time.ParseDuration(s); err != nil || v <= 0 {
+				warnings = append(warnings, configWarning{
+					Field:   d.name,
+					Message: fmt.Sprintf("invalid duration %q; using default %s", s, d.def),
+				})
+			}
+		}
+	}
+
 	if cfg != nil {
 		for i, is := range cfg.IconSets {
 			field := fmt.Sprintf("iconSets[%d]", i)
@@ -153,6 +179,7 @@ type startupConfig struct {
 	ServiceBlacklist   []string
 	ContainerBlacklist []string
 	IconSetNames       []string
+	StateDir           string
 	DashboardURL       string
 	NtfyTopic          string
 	GotifyURL          string
@@ -162,6 +189,12 @@ type startupConfig struct {
 	TraefikAPIToken    string
 	TraefikAPIUser     string
 	TraefikAPIPass     string
+	ContainerRoot      string
+	DataRoot           string
+	BackupRoot         string
+	BackupMaxAge       time.Duration
+	BackupScanInterval time.Duration
+	BackupToken        string
 }
 
 // logStartupConfig logs a structured summary of the effective configuration.
@@ -179,6 +212,7 @@ func logStartupConfig(s startupConfig) {
 	log.Printf("  auto-detection: %t (group %q, service blacklist: %s)", s.AutoDetection, s.AutoDetectedGroup, listOrNone(s.ServiceBlacklist))
 	log.Printf("  container blacklist: %s", listOrNone(s.ContainerBlacklist))
 	log.Printf("  icon sets: %s", listOrNone(s.IconSetNames))
+	log.Printf("  issues state dir: %s", valueOrNone(s.StateDir))
 	log.Printf("  dashboard url: %s", valueOrNone(s.DashboardURL))
 	log.Printf("  ntfy topic: %s", valueOrNone(s.NtfyTopic))
 	log.Printf("  gotify url: %s", valueOrNone(s.GotifyURL))
@@ -188,4 +222,10 @@ func logStartupConfig(s startupConfig) {
 	log.Printf("  traefik api token: %s", redactSecret(s.TraefikAPIToken))
 	log.Printf("  traefik api user: %s", valueOrNone(s.TraefikAPIUser))
 	log.Printf("  traefik api pass: %s", redactSecret(s.TraefikAPIPass))
+	log.Printf("  container root: %s", valueOrNone(s.ContainerRoot))
+	log.Printf("  data root: %s", valueOrNone(s.DataRoot))
+	log.Printf("  backup root: %s", valueOrNone(s.BackupRoot))
+	log.Printf("  backup max age: %s", s.BackupMaxAge)
+	log.Printf("  storage scan interval: %s", s.BackupScanInterval)
+	log.Printf("  backup report token: %s", redactSecret(s.BackupToken))
 }

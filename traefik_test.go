@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -296,5 +300,273 @@ func TestFetchTraefikDashboardClassifies404(t *testing.T) {
 	}
 	if d.Version == nil || d.Version.Version != "v3.7.13" {
 		t.Fatalf("version should decode, got %+v", d.Version)
+	}
+}
+
+// TestTraefikStateFeedsIssues verifies that the mutex-protected snapshot the
+// HTTP handler uses is the same input the issue collector sees.
+func TestTraefikStateFeedsIssues(t *testing.T) {
+	resetTraefikState()
+	defer resetTraefikState()
+
+	traefikMu.Lock()
+	traefikContainerFound = true
+	traefikAPIURL = "http://traefik:8080"
+	traefikData = &traefikDashboardData{
+		Version:          &traefikVersion{Version: "v3.7.13"},
+		VersionSupported: true,
+		MajorVersion:     3,
+		HTTPRouters:      []traefikRouter{{Name: "off", Status: "disabled"}},
+	}
+	traefikDataErr = ""
+	traefikMu.Unlock()
+
+	snap := getTraefikState()
+	issues, _, complete := collectTraefikIssues(snap)
+	if !complete {
+		t.Fatal("a healthy snapshot was reported as incomplete")
+	}
+	if len(issues) != 1 || issues[0].Category != categoryTraefikEntity {
+		t.Fatalf("issues = %+v, want one traefik-entity finding", issues)
+	}
+}
+
+// roundTripFunc adapts a function to http.RoundTripper so a test can answer
+// Docker API calls without a daemon.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// traefikTestInspectBody is a running Traefik container with no API label, no
+// network IP, and no published port: URL resolution always fails for it.
+const traefikTestInspectBody = `{"Id":"0123456789abcdef","Name":"/traefik","State":{"Status":"running"},"Config":{"Image":"traefik:v3","Labels":{},"Env":[],"Cmd":[]},"NetworkSettings":{"Networks":{},"Ports":{}}}`
+
+func traefikTestInspectResponse(t *testing.T, body string) *http.Response {
+	t.Helper()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestTraefikAPIResponseCarriesDisabledFields(t *testing.T) {
+	resp := traefikAPIResponse(traefikSnapshot{
+		Found:          true,
+		APIURL:         "",
+		Err:            "resolve API URL: no label",
+		Disabled:       true,
+		DisabledReason: "resolve API URL: no label",
+		Attempts:       traefikAttemptLimit,
+		AttemptLimit:   traefikAttemptLimit,
+	})
+
+	if resp["disabled"] != true {
+		t.Fatalf("disabled = %v, want true", resp["disabled"])
+	}
+	if resp["disabledReason"] != "resolve API URL: no label" {
+		t.Fatalf("disabledReason = %v", resp["disabledReason"])
+	}
+	if resp["attempts"] != traefikAttemptLimit || resp["attemptLimit"] != traefikAttemptLimit {
+		t.Fatalf("attempt fields = %v/%v", resp["attempts"], resp["attemptLimit"])
+	}
+	if resp["found"] != true {
+		t.Fatalf("found = %v, want true", resp["found"])
+	}
+	for _, key := range []string{"found", "apiUrl", "data", "error", "disabled", "disabledReason", "attempts", "attemptLimit"} {
+		if _, ok := resp[key]; !ok {
+			t.Fatalf("payload is missing %q: %+v", key, resp)
+		}
+	}
+}
+
+func TestTraefikGateAttemptBudget(t *testing.T) {
+	var g traefikGate
+	if !g.shouldAttempt() {
+		t.Fatal("a fresh gate must allow attempts")
+	}
+
+	for want := 1; want <= traefikAttemptLimit-1; want++ {
+		attempt, disabled := g.fail("boom")
+		if attempt != want || disabled {
+			t.Fatalf("attempt %d: got (%d, %v), want (%d, false)", want, attempt, disabled, want)
+		}
+	}
+
+	attempt, disabled := g.fail("boom")
+	if attempt != traefikAttemptLimit || !disabled {
+		t.Fatalf("final attempt: got (%d, %v), want (%d, true)", attempt, disabled, traefikAttemptLimit)
+	}
+	if g.shouldAttempt() {
+		t.Fatal("a disabled gate must refuse attempts")
+	}
+	if g.disabledReason != "boom" {
+		t.Fatalf("disabledReason = %q, want boom", g.disabledReason)
+	}
+
+	if attempt, disabled := g.fail("later"); attempt != 0 || disabled {
+		t.Fatalf("a disabled gate recorded another attempt: (%d, %v)", attempt, disabled)
+	}
+	if g.attempts != traefikAttemptLimit {
+		t.Fatalf("attempts = %d, want %d", g.attempts, traefikAttemptLimit)
+	}
+}
+
+func TestTraefikGatePassIsPermanent(t *testing.T) {
+	var g traefikGate
+	g.pass()
+	if attempt, disabled := g.fail("boom"); attempt != 0 || disabled || g.attempts != 0 {
+		t.Fatalf("a passed gate must not count failures: (%d, %v), attempts %d", attempt, disabled, g.attempts)
+	}
+	if !g.shouldAttempt() {
+		t.Fatal("a passed gate must keep attempting")
+	}
+
+	var disabledGate traefikGate
+	for i := 0; i < traefikAttemptLimit; i++ {
+		disabledGate.fail("boom")
+	}
+	disabledGate.pass()
+	if !disabledGate.disabled {
+		t.Fatal("pass must never re-enable a disabled gate")
+	}
+}
+
+func TestRefreshTraefikDisablesAfterThreeAttempts(t *testing.T) {
+	resetTraefikState()
+	defer resetTraefikState()
+	t.Setenv("TRAEFIK_API_URL", "")
+
+	var requests int32
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		atomic.AddInt32(&requests, 1)
+		return traefikTestInspectResponse(t, traefikTestInspectBody), nil
+	})}
+
+	var logs bytes.Buffer
+	origWriter := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(origWriter)
+
+	containers := []dockerContainer{{ID: "0123456789abcdef", Image: "traefik:v3", State: "running"}}
+	for i := 0; i < traefikAttemptLimit; i++ {
+		refreshTraefik(client, containers, nil)
+	}
+
+	snap := getTraefikState()
+	if !snap.Disabled {
+		t.Fatalf("gate not disabled after %d attempts: %+v", traefikAttemptLimit, snap)
+	}
+	if snap.Attempts != traefikAttemptLimit {
+		t.Fatalf("attempts = %d, want %d", snap.Attempts, traefikAttemptLimit)
+	}
+	if !strings.Contains(snap.DisabledReason, "resolve API URL") {
+		t.Fatalf("disabledReason = %q, want the resolution failure", snap.DisabledReason)
+	}
+	if !strings.Contains(logs.String(), "attempt 3/3 failed") {
+		t.Fatalf("missing third attempt log line:\n%s", logs.String())
+	}
+	if got := strings.Count(logs.String(), "unable to access Traefik API after 3 attempts"); got != 1 {
+		t.Fatalf("disable line logged %d times, want 1:\n%s", got, logs.String())
+	}
+
+	// A disabled gate performs no Docker inspect and no API request, and it
+	// does not log again.
+	before := atomic.LoadInt32(&requests)
+	beforeLogs := logs.String()
+	refreshTraefik(client, containers, nil)
+	refreshTraefik(client, containers, nil)
+	if got := atomic.LoadInt32(&requests); got != before {
+		t.Fatalf("disabled gate made %d extra Docker requests", got-before)
+	}
+	if logs.String() != beforeLogs {
+		t.Fatalf("disabled gate logged again:\n%s", logs.String()[len(beforeLogs):])
+	}
+	if !getTraefikState().Found {
+		t.Fatal("container detection must stay current while the gate is disabled")
+	}
+}
+
+func TestRefreshTraefikNoContainerSpendsNoAttempt(t *testing.T) {
+	resetTraefikState()
+	defer resetTraefikState()
+
+	var requests int32
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		atomic.AddInt32(&requests, 1)
+		return traefikTestInspectResponse(t, traefikTestInspectBody), nil
+	})}
+
+	for i := 0; i < 5; i++ {
+		refreshTraefik(client, nil, nil)
+	}
+	if got := getTraefikState(); got.Attempts != 0 || got.Disabled {
+		t.Fatalf("polls without a container spent attempts: %+v", got)
+	}
+	if requests != 0 {
+		t.Fatalf("polls without a container made %d Docker requests", requests)
+	}
+
+	// A Traefik that starts later still receives the full budget.
+	t.Setenv("TRAEFIK_API_URL", "")
+	containers := []dockerContainer{{ID: "0123456789abcdef", Image: "traefik:v3", State: "running"}}
+	refreshTraefik(client, containers, nil)
+	if got := getTraefikState(); got.Attempts != 1 || got.Disabled {
+		t.Fatalf("first real attempt: %+v, want attempts 1 and not disabled", got)
+	}
+}
+
+func TestRefreshTraefikSuccessDisarmsGate(t *testing.T) {
+	resetTraefikState()
+	defer resetTraefikState()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/version"):
+			io.WriteString(w, `{"Version":"v3.1.0"}`)
+		case strings.HasSuffix(r.URL.Path, "/api/overview"):
+			io.WriteString(w, `{"http":{"routers":{"total":1}}}`)
+		default:
+			io.WriteString(w, `[]`)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("TRAEFIK_API_URL", srv.URL)
+
+	var failInspect atomic.Bool
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		if failInspect.Load() {
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("inspect failed")),
+			}, nil
+		}
+		return traefikTestInspectResponse(t, traefikTestInspectBody), nil
+	})}
+
+	var logs bytes.Buffer
+	origWriter := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(origWriter)
+
+	containers := []dockerContainer{{ID: "0123456789abcdef", Image: "traefik:v3", State: "running"}}
+	refreshTraefik(client, containers, nil)
+	if got := getTraefikState(); got.Disabled || got.Data == nil {
+		t.Fatalf("a reachable API must pass the gate: %+v", got)
+	}
+
+	failInspect.Store(true)
+	for i := 0; i < traefikAttemptLimit+1; i++ {
+		refreshTraefik(client, containers, nil)
+	}
+	if got := getTraefikState(); got.Disabled {
+		t.Fatalf("a passed gate must never disable: %+v", got)
+	}
+	if strings.Contains(logs.String(), "attempt 1/3 failed") {
+		t.Fatalf("a passed gate must not log boot attempts:\n%s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "traefik: inspect") {
+		t.Fatalf("post-boot inspect failures must keep their own log line:\n%s", logs.String())
 	}
 }

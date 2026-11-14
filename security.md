@@ -408,7 +408,7 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 |-----------|-------|
 | **File(s)** | `index.html` |
 
-**Description:** The dashboard is read-only (no POST/PUT/DELETE endpoints), so there is no state-changing action to forge. However, the absence of SameSite cookie handling or CSRF tokens means that if write endpoints are ever added, CSRF protection would need to be retrofitted.
+**Description:** The dashboard was read-only at the time of this review (no POST/PUT/DELETE endpoints), so there was no state-changing action to forge. The absence of SameSite cookie handling or CSRF tokens meant that if write endpoints were ever added, CSRF protection would need to be retrofitted. **Superseded 2026-11-06:** the Issues acknowledgement endpoints add that protection — see the [addendum](#2026-11-06-addendum--issues-workflow-state-changing-endpoints).
 
 **Impact:** Currently none — purely a forward-looking finding.
 
@@ -519,6 +519,100 @@ function sanitizeIconUrl(url) {
 
 ---
 
+## 2026-11-06 Addendum — Issues workflow (state-changing endpoints)
+
+The Issues tab adds the first write endpoints to dumbdock. This addendum supersedes the
+"read-only / no write endpoints" statements in **L-05** and **Positive Observation 6**.
+
+| Attribute | Value |
+|-----------|-------|
+| **File(s)** | `issues.go`, `main.go`, `index.html`, `docker_version.go` |
+| **Endpoints** | `GET /api/issues`, `POST /api/issues/{id}/acknowledge`, `DELETE /api/issues/{id}/acknowledge` |
+
+**Controls:**
+
+1. **Authentication.** All three routes are registered on the same mux wrapped by the active
+   `http-auth` / `web-auth` middleware. `none` mode leaves them open by explicit operator choice.
+2. **CSRF.** The mutations require the non-simple header `X-Dumbdock-Request: issues`. A
+   cross-origin HTML form cannot set a custom header, and dumbdock adds no CORS headers, so a
+   forged simple request is rejected with `403`. The session cookie remains `SameSite=Lax`.
+3. **Input surface.** The only input is a server-issued 64-character lowercase hex issue ID, and
+   the handler rejects anything else with `400` before touching state. No path, filename,
+   container name, or free-form text is accepted, so the endpoints cannot be used for path
+   traversal or arbitrary file writes.
+4. **Persistence.** Acknowledgements are stored in `<DUMBDOCK_STATE_DIR>/issues-acknowledged.json`
+   (default `/data`), written with a same-directory temporary file, `fsync`, atomic `rename`, and
+   mode `0600`. Reads are capped at 1 MiB and malformed state is discarded with a startup warning.
+   A failed write returns `500` and leaves the published snapshot unchanged.
+5. **Data exposure.** The response carries category, severity, title, detail, source, an optional
+   container id/name, timestamps, and coverage metadata. It carries **no Docker labels**, no
+   registry tokens, no Traefik credentials, and **no container or application log text** — the
+   Issues feature does not read logs at all.
+6. **Outbound call.** The Docker Engine comparison is the second third-party fetch (after the
+   image update checker): 10s timeout, 1 MiB body cap, `User-Agent: dumbdock/<version>`, no
+   credentials, 24-hour success cache, and the last successful value retained on failure.
+7. **No host mutation.** The feature never pulls, restarts, upgrades, or reconfigures anything;
+   acknowledgement state is dumbdock's own bookkeeping.
+
+**Residual risk:** an authenticated user can hide a finding from the count without resolving it.
+The Acknowledged section keeps it visible, and it becomes active again after a complete
+collection proves it gone — the acknowledgement is not a permanent suppression.
+
+---
+
+## 2026-11-07 Addendum — Storage and backup verification
+
+The Storage tab adds a read-only filesystem surface and a second authenticated write endpoint.
+It does not change the Docker socket posture.
+
+| Attribute | Value |
+|-----------|-------|
+| **File(s)** | `storage.go`, `storage_evidence.go`, `docker.go`, `main.go`, `index.html` |
+| **Endpoints** | `GET /api/storage`, `POST /api/backups/report` |
+| **New mount** | optional read-only data root (`/srv/containers:/srv/containers:ro`) |
+
+**Controls:**
+
+1. **Path confinement.** Every filesystem path is `<root>/<project>/<service>[/backups]`, where
+   `project` and `service` come from the sanitized `[A-Za-z0-9._-]` compose labels and are
+   rejected otherwise. `normalizeHostPath` refuses relative paths, NUL bytes, and any `..`
+   segment rather than cleaning it, and `pathWithin` confirms the result stays under the
+   configured root before a directory is opened. No request value ever becomes a path.
+2. **Metadata only.** The scanner uses `os.ReadDir` and `DirEntry.Info`; dump contents are never
+   opened, parsed, or served. Symlinked entries are skipped, the depth and entry counts are
+   capped, and each scan has a wall-clock budget. A permission error is coverage, not a finding.
+3. **Read-only mount.** The optional data-root mount is documented with `:ro`. dumbdock never
+   writes to it and never runs `docker exec`, so it cannot read inside a container or change a
+   dataset.
+4. **Report endpoint auth.** `POST /api/backups/report` is behind the normal auth middleware and
+   additionally accepts `Authorization: Bearer <DUMBDOCK_BACKUP_TOKEN>`, compared in constant
+   time and scoped to that single route. The token grants report-write only, is redacted in the
+   startup log, and an empty token never matches. `X-Dumbdock-Request: backups` is required in
+   both cases, so a cross-origin form cannot post a report.
+5. **Input bounds.** The body is capped at 16 KiB; the target must already be a detected dataset;
+   the engine must match the detected engine; the artifact must be a bare file name (no
+   separators, control characters, `.`/`..`, or more than 128 bytes); the detail is stripped of
+   control characters and capped at 200 bytes; a timestamp more than five minutes in the future
+   is clamped, and one older than 90 days is refused.
+6. **Persistence.** Reports live in `<DUMBDOCK_STATE_DIR>/backup-reports.json` (`0600`, same-
+   directory temp file, `fsync`, atomic rename, 1 MiB read cap). Malformed state is discarded
+   with a startup warning. Reports for datasets that no longer exist are pruned after 30 days.
+7. **Data exposure.** `GET /api/storage` returns project/service names, container identity, data
+   paths, volume names, policy, verdict, and bounded artifact names. It carries no dump contents,
+   no environment values, no Docker label dump, and no credentials. All values are
+   `escapeHtml`-escaped in the UI.
+8. **Honesty as a control.** An unconfigured or failed evidence provider cannot silently turn
+   into "backup missing": it sets coverage, leaves datasets `unverified`, and sets
+   `collectionComplete=false` on error so acknowledgements are not pruned.
+
+**Residual risk:** the data-root mount exposes backup file **names and timestamps** to anyone who
+can read the API. Mount it only when the Storage tab's evidence check is wanted; otherwise relay
+reports through `/api/backups/report`. The reference backup script runs as root with Docker
+access and writes dumps readable only by root (`umask 077`, mode `0600`) — treat the data root as
+sensitive and include it in host-level encryption and access controls.
+
+---
+
 ## ✅ Positive Observations
 
 Not everything is a finding — dumbdock does several things right from a security perspective:
@@ -533,7 +627,7 @@ Not everything is a finding — dumbdock does several things right from a securi
 
 5. **No dynamic HTML generation on the server.** All HTML is either embedded via `//go:embed` (static `index.html`) or served as JSON API responses. There are no server-side template injections.
 
-6. **No write endpoints.** The API is entirely read-only (GET only), eliminating CSRF, SSRF-to-write, and injection attack surfaces on the server side.
+6. **No write endpoints at the time of review.** The API was entirely read-only (GET only), eliminating CSRF, SSRF-to-write, and injection attack surfaces on the server side. **Superseded 2026-11-06:** the authenticated acknowledgement endpoints are documented in the [addendum](#2026-11-06-addendum--issues-workflow-state-changing-endpoints).
 
 7. **Configurable listen address.** The `LISTEN_ADDR` env var allows operators to bind to specific interfaces (default `:8080` could be tightened to `127.0.0.1:8080`).
 

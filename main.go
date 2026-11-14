@@ -107,6 +107,10 @@ func main() {
 		log.Printf("warning: config: %s: %s", w.Field, w.Message)
 	}
 
+	// Storage and backup convention settings. The read-only data root is
+	// inspected only by the background poll.
+	storageCfg := resolveStorageConfig(cfg)
+
 	// Session store for web-auth mode; initialized in the auth dispatch below.
 	var webSessions *sessionStore
 
@@ -135,6 +139,91 @@ func main() {
 	var dependencyGrouped map[string][]containerCard
 	var dependencyProjects []string
 	var networkingData networkingResponse
+
+	// Issue detection: acknowledgement state is loaded once at startup and the
+	// release comparison is refreshed in the background. The collectors run in
+	// the poll loop, never on an HTTP request.
+	issues := newIssueStore(stateDir())
+	for _, warning := range issues.load() {
+		log.Printf("warning: issues: %s: %s", warning.Field, warning.Message)
+	}
+	dockerReleases := newDockerReleaseChecker()
+
+	// Storage and backup collection. Push reports are persisted next to the
+	// issue acknowledgements; the collector caches inspects and the filesystem
+	// scan, so the poll loop never hammers the data root.
+	reports := newReportStore(stateDir())
+	for _, warning := range reports.load() {
+		log.Printf("warning: backup reports: %s: %s", warning.Field, warning.Message)
+	}
+	storageStore := newStorageStore()
+	backupToken := strings.TrimSpace(os.Getenv("DUMBDOCK_BACKUP_TOKEN"))
+	storage := newStorageCollector(storageCfg, client, reports, backupToken != "")
+	reportEndpoint := newReportHandler(reports, storageStore)
+
+	refreshStorage := func(containers []dockerContainer, denylist []string) {
+		filtered := make([]dockerContainer, 0, len(containers))
+		for _, c := range containers {
+			if isInBlacklist(containerName(c), denylist) {
+				continue
+			}
+			filtered = append(filtered, c)
+		}
+		coll := storage.Collect(filtered)
+		storageStore.apply(coll.response, coll.issues, coll.response.Coverage.Warnings, coll.response.Coverage.CollectionComplete, storage.evaluated())
+
+		valid := make(map[string]bool, len(coll.response.Datasets))
+		for _, ds := range coll.response.Datasets {
+			valid[ds.Key] = true
+		}
+		if err := reports.prune(valid, time.Now()); err != nil {
+			log.Printf("warning: backup reports: prune: %v", err)
+		}
+	}
+
+	refreshIssues := func(allCards []containerCard, denylist []string) {
+		unhealthy, healthErr := fetchUnhealthyContainers(client)
+		daemon, daemonErr := fetchDockerVersion(client)
+		dockerReleases.startRefresh()
+		latest, lastChecked, releaseErr := dockerReleases.status()
+
+		traefik := getTraefikState()
+
+		containerIssues, containerWarnings, containersComplete := collectContainerIssues(allCards, unhealthy, healthErr, denylist)
+		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefik)
+		versionIssues, versionCoverage := collectDockerVersionIssue(daemon, daemonErr, latest, lastChecked, releaseErr)
+
+		found := make([]hostIssue, 0, len(containerIssues)+len(traefikIssues)+len(versionIssues))
+		found = append(found, containerIssues...)
+		found = append(found, traefikIssues...)
+		found = append(found, versionIssues...)
+
+		// Storage findings are produced by the collector that runs just before
+		// this one in the poll, so this stays a pure read.
+		storageIssues, storageWarnings, storageComplete, storageEvaluated := storageStore.findings()
+		found = append(found, storageIssues...)
+
+		warnings := make([]string, 0, len(containerWarnings)+len(traefikWarnings)+len(storageWarnings))
+		warnings = append(warnings, containerWarnings...)
+		warnings = append(warnings, traefikWarnings...)
+		warnings = append(warnings, storageWarnings...)
+
+		// When no evidence provider is configured the backup findings are not
+		// evaluated; a previous acknowledgement is retained rather than pruned.
+		backupCovered := storageComplete
+		if !storageEvaluated && issues.hasAcknowledgedCategory(categoryBackup) {
+			backupCovered = false
+		}
+
+		coverage := issueCoverage{
+			CollectionComplete: containersComplete && traefikComplete && backupCovered,
+			DockerVersion:      versionCoverage,
+			Warnings:           warnings,
+		}
+		if err := issues.apply(found, coverage, time.Now()); err != nil {
+			log.Printf("warning: issues: persist acknowledgements: %v", err)
+		}
+	}
 
 	refresh := func() {
 		containers, err := fetchContainers(client, false)
@@ -416,6 +505,14 @@ func main() {
 		if alerts.enabled() {
 			alerts.checkNew(unlabeled)
 		}
+
+		// Collect host issues from the completed snapshot. I/O stays here in the
+		// poll path so /api/issues is a pure cache read.
+		allCards := make([]containerCard, 0, len(cards)+len(unlabeled))
+		allCards = append(allCards, cards...)
+		allCards = append(allCards, unlabeled...)
+		refreshStorage(containers, contBlacklist)
+		refreshIssues(allCards, contBlacklist)
 	}
 
 	refreshNetworking := func() {
@@ -469,16 +566,23 @@ func main() {
 		json.NewEncoder(w).Encode(networkingData)
 	})
 
+	// Host issues. The GET is a cache read; the acknowledgement writes are
+	// guarded by the auth middleware plus a non-simple request header.
+	mux.HandleFunc("GET /api/issues", issues.getHandler)
+	mux.HandleFunc("POST /api/issues/{id}/acknowledge", issues.acknowledgeHandler)
+	mux.HandleFunc("DELETE /api/issues/{id}/acknowledge", issues.unacknowledgeHandler)
+
+	// Storage conventions and backup evidence. Both are cache reads; the report
+	// endpoint is the only write and is additionally reachable with a dedicated
+	// bearer token so a host backup script does not need a browser session.
+	mux.HandleFunc("GET /api/storage", storageStore.getHandler)
+	mux.HandleFunc("POST /api/backups/report", reportEndpoint.ServeHTTP)
+
 	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
-		found, url, data, errStr := getTraefikState()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"found":  found,
-			"apiUrl": url,
-			"data":   data,
-			"error":  errStr,
-		})
+		snap := getTraefikState()
+		json.NewEncoder(w).Encode(traefikAPIResponse(snap))
 	})
 
 	mux.HandleFunc("GET /api/icons", func(w http.ResponseWriter, r *http.Request) {
@@ -564,6 +668,22 @@ func main() {
 		// Unknown modes are reported by validateConfig; auth stays disabled.
 	}
 
+	// A backup report from a host script authenticates with DUMBDOCK_BACKUP_TOKEN
+	// instead of a dashboard session. The shortcut is scoped to the single
+	// report route and compares the token in constant time; every other request
+	// goes through the normal auth wrapper.
+	if backupToken != "" {
+		inner := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost && r.URL.Path == "/api/backups/report" &&
+				bearerMatches(r.Header.Get("Authorization"), backupToken) {
+				reportEndpoint.ServeHTTP(w, r)
+				return
+			}
+			inner.ServeHTTP(w, r)
+		})
+	}
+
 	configStatus := "loaded"
 	if _, statErr := os.Stat(configPath()); statErr != nil {
 		configStatus = "not found (using defaults)"
@@ -586,6 +706,7 @@ func main() {
 		ServiceBlacklist:   autoDetectionServiceBlacklist(cfg),
 		ContainerBlacklist: containerBlacklist(cfg),
 		IconSetNames:       iconSetNames(),
+		StateDir:           stateDir(),
 		DashboardURL:       alerts.cfg.ContainerURL,
 		NtfyTopic:          alerts.cfg.NtfyTopic,
 		GotifyURL:          alerts.cfg.GotifyURL,
@@ -595,6 +716,12 @@ func main() {
 		TraefikAPIToken:    os.Getenv("TRAEFIK_API_TOKEN"),
 		TraefikAPIUser:     os.Getenv("TRAEFIK_API_USER"),
 		TraefikAPIPass:     os.Getenv("TRAEFIK_API_PASS"),
+		ContainerRoot:      storageCfg.ContainerRoot,
+		DataRoot:           storageCfg.DataRoot,
+		BackupRoot:         storageCfg.BackupRoot,
+		BackupMaxAge:       storageCfg.DefaultMaxAge,
+		BackupScanInterval: storageCfg.ScanInterval,
+		BackupToken:        os.Getenv("DUMBDOCK_BACKUP_TOKEN"),
 	})
 
 	log.Fatal(http.ListenAndServe(listenAddr, handler))

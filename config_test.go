@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -98,6 +100,24 @@ func TestGenerateAuthPassword(t *testing.T) {
 	}
 }
 
+func TestValidateConfigStateDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DUMBDOCK_STATE_DIR", dir)
+	if got := validateConfig(&overrideConfig{}, nil, "none"); len(got) != 0 {
+		t.Fatalf("validateConfig with a writable state dir returned %+v", got)
+	}
+
+	file := filepath.Join(dir, "state-file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUMBDOCK_STATE_DIR", file)
+	got := validateConfig(&overrideConfig{}, nil, "none")
+	if len(got) != 1 || got[0].Field != "DUMBDOCK_STATE_DIR" {
+		t.Fatalf("validateConfig with a file state dir returned %+v, want one DUMBDOCK_STATE_DIR warning", got)
+	}
+}
+
 func TestValidateConfig(t *testing.T) {
 	clearEnv := func(t *testing.T) {
 		for _, k := range []string{
@@ -107,6 +127,12 @@ func TestValidateConfig(t *testing.T) {
 			"ALERT_COOLDOWN",
 			"DUMBDOCK_PORT",
 			"LISTEN_ADDR",
+			"DUMBDOCK_STATE_DIR",
+			"DUMBDOCK_CONTAINER_ROOT",
+			"DUMBDOCK_DATA_ROOT",
+			"DUMBDOCK_BACKUP_ROOT",
+			"DUMBDOCK_BACKUP_MAX_AGE",
+			"DUMBDOCK_BACKUP_SCAN_INTERVAL",
 		} {
 			t.Setenv(k, "")
 		}
@@ -182,6 +208,20 @@ func TestValidateConfig(t *testing.T) {
 			}},
 			authMode:   "none",
 			wantFields: []string{"iconSets[0]", "iconSets[0]", "iconSets[0]"},
+		},
+		{
+			name:       "invalid storage root",
+			cfg:        &overrideConfig{},
+			authMode:   "none",
+			env:        map[string]string{"DUMBDOCK_DATA_ROOT": "relative/data"},
+			wantFields: []string{"DUMBDOCK_DATA_ROOT", "DUMBDOCK_BACKUP_ROOT"},
+		},
+		{
+			name:       "invalid backup max age",
+			cfg:        &overrideConfig{},
+			authMode:   "none",
+			env:        map[string]string{"DUMBDOCK_BACKUP_MAX_AGE": "nope"},
+			wantFields: []string{"DUMBDOCK_BACKUP_MAX_AGE"},
 		},
 		{
 			name: "valid icon set entry",

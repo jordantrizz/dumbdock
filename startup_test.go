@@ -38,6 +38,7 @@ func TestLogStartupConfig(t *testing.T) {
 		ServiceBlacklist:   []string{"server", "db"},
 		ContainerBlacklist: []string{"traefik"},
 		IconSetNames:       []string{"selfhst", "dashboard-icons"},
+		StateDir:           "/data",
 		DashboardURL:       "https://dumbdock.example.com",
 		NtfyTopic:          "mytopic",
 		GotifyURL:          "https://gotify.example.com",
@@ -47,6 +48,12 @@ func TestLogStartupConfig(t *testing.T) {
 		TraefikAPIToken:    "traefik-secret-token",
 		TraefikAPIUser:     "admin",
 		TraefikAPIPass:     "traefik-secret-pass",
+		ContainerRoot:      "/opt/containers",
+		DataRoot:           "/srv/containers",
+		BackupRoot:         "/srv/containers",
+		BackupMaxAge:       26 * time.Hour,
+		BackupScanInterval: 5 * time.Minute,
+		BackupToken:        "backup-secret-token",
 	})
 
 	out := buf.String()
@@ -58,6 +65,13 @@ func TestLogStartupConfig(t *testing.T) {
 		"gotify token: (set)",
 		"traefik api token: (set)",
 		"traefik api pass: (set)",
+		"issues state dir: /data",
+		"container root: /opt/containers",
+		"data root: /srv/containers",
+		"backup root: /srv/containers",
+		"backup max age: 26h0m0s",
+		"storage scan interval: 5m0s",
+		"backup report token: (set)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -68,6 +82,7 @@ func TestLogStartupConfig(t *testing.T) {
 		"gotify-secret-token",
 		"traefik-secret-token",
 		"traefik-secret-pass",
+		"backup-secret-token",
 	} {
 		if strings.Contains(out, secret) {
 			t.Errorf("output leaked secret %q:\n%s", secret, out)
