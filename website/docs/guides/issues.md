@@ -23,6 +23,20 @@ every poll after authentication.
 | Storage paths | `warning` / `error` | Compose file outside the root, data beside the compose file, data in a Docker volume (warning); database data in the container layer (error) |
 | Database backups | `warning` / `error` | Newest verified backup older than policy (warning); no backup although required (error) |
 
+## When the Traefik API is disabled
+
+After three failed boot attempts the gate disables Traefik API work for the run —
+see [Boot attempt gate](./traefik.md#boot-attempt-gate). The Issues tab then
+carries exactly one `traefik-api` row: title
+**Traefik API unavailable (disabled until restart)**, with the stored reason as
+its detail and a stable ID, even if the Traefik container has since disappeared.
+
+That row is a terminal, operator-visible coverage cap rather than a partial
+collection. Collection is reported **complete**, acknowledgements for every other
+category keep pruning normally, and no entity, backend, version, or
+partial-endpoint rows are produced while it is disabled. Restarting dumbdock
+re-arms the gate.
+
 ## What is deliberately not a finding
 
 - Containers hidden by `CONTAINER_BLACKLIST` or `containerBlacklist`.

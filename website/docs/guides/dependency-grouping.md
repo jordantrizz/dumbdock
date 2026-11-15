@@ -45,3 +45,4 @@ the **By Dependency** view shows `app` under a `db` heading.
 
 - [Your first dashboard](../getting-started/first-dashboard.md) — the label-based
   group.
+- [Labels reference](../reference/labels.md) — `dumbdock.group` and `order`.

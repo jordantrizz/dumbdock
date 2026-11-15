@@ -39,5 +39,7 @@ DUMBDOCK_PORT=8080
 
 ## Related
 
+- [Environment variables](../reference/environment-variables.md) — every setting
+  with its default.
 - [Installation](../getting-started/installation.md) — the published port and its
   loopback default.

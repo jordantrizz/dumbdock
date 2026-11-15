@@ -1,6 +1,11 @@
 services:
   dumbdock:
-    build: .
+    # ${CONTROL_CODE_DIR:-.} lets a split install (compose files in an install
+    # root, source in a sibling checkout) build from the checkout. A plain
+    # checkout resolves to "." and is unchanged. See docs/commands/control.sh.
+    build:
+      context: ${CONTROL_CODE_DIR:-.}
+      dockerfile: Dockerfile
     container_name: dumbdock
     restart: unless-stopped
     ports:
@@ -53,6 +58,18 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # Optional named Cloudflare Tunnel (./control.sh tunnel named). Gated behind a
+  # profile so plain `setup`/`start` ignore it until TUNNEL_TOKEN exists. The
+  # origin is the in-network service name, not a host-side localhost port.
+  cloudflared:
+    image: 'cloudflare/cloudflared:latest'
+    container_name: dumbdock-cloudflared
+    command: 'tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-}'
+    restart: unless-stopped
+    profiles: [tunnel]
+    depends_on:
+      - dumbdock
 
 volumes:
   dumbdock-data:

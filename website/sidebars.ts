@@ -36,6 +36,39 @@ const sidebars: SidebarsConfig = {
         'guides/tab-persistence',
       ],
     },
+    {
+      type: 'category',
+      label: 'Commands',
+      items: ['commands/control-sh'],
+    },
+    {
+      type: 'category',
+      label: 'Reference',
+      items: [
+        'reference/labels',
+        'reference/config-file',
+        'reference/startup-logging',
+        'reference/environment-variables',
+        'reference/api',
+        'reference/security',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Contributing',
+      items: [
+        'contributing/development',
+        'contributing/testing',
+        'contributing/release',
+        'contributing/ai-assisted-development',
+        'contributing/license',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'History',
+      items: ['history/changelog'],
+    },
   ],
 };
 

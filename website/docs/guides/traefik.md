@@ -33,6 +33,38 @@ probes candidates in order — published `8080/tcp`, the container IP on `8081`
 and adopts the first that answers `/api/version`. Probing uses a 2 s timeout,
 sends no credentials, and runs at most once per poll.
 
+## Boot attempt gate
+
+Traefik API availability is checked at boot, not forever. When a running Traefik
+container cannot be used — the container inspect fails, no API URL resolves, or all
+nine endpoint fetches fail after the fallback probe — dumbdock spends one attempt.
+One poll is one attempt, so at the default 10-second interval the whole budget is
+spent in about 30 seconds.
+
+After the third failed attempt dumbdock logs exactly one line and stops all Traefik
+API work for the life of the process:
+
+```text
+traefik: unable to access Traefik API after 3 attempts — disabled until dumbdock restarts: <reason>
+```
+
+The Traefik tab then shows an **Unable to access Traefik API** banner with that
+reason and the attempt count, and no Retry button. Restarting the dumbdock
+container re-arms the gate — the three attempts run again. There is no setting for
+the budget and no in-place retry.
+
+- A poll with no Traefik container spends no attempt, so a Traefik that starts
+  after dumbdock still gets its full budget.
+- The first fetch where at least one endpoint answers permanently disarms the gate
+  for that process. A later Traefik outage keeps the normal behaviour described
+  under [Enable the API](#enable-the-api): one log line per error-state change, and
+  `traefik: API recovered` when it returns.
+- While the gate is disabled, dumbdock still detects a Traefik container from the
+  container list the poll already fetched, but performs no inspect, no URL
+  resolution, no probe, and no API request.
+- `GET /api/traefik` reports `disabled`, `disabledReason`, `attempts` and
+  `attemptLimit` beside the existing fields.
+
 ## Data displayed
 
 Once the URL resolves, dumbdock fetches these endpoints concurrently:

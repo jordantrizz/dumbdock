@@ -13,8 +13,13 @@ example when it is missing, creates `.env` from `.env.example`, builds the image
 starts the stack, and waits for readiness.
 
 ```bash
-./control.sh setup
+./control.sh create
 ```
+
+`create` is the first-run spelling of `setup`; both commands do the same work.
+A split install keeps `.env` and the compose files in a separate install root
+and symlinks `control.sh` at a checkout — see
+[control.sh](../commands/control-sh.md#split-install).
 
 To do it by hand instead:
 
