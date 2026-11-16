@@ -18,17 +18,30 @@ type cardOverride struct {
 	Order       int    `json:"order"`
 }
 
+// integrationConfig is the per-integration override block in dumbdock.json.
+// Every field is optional: an unset field falls through to the container
+// label, the environment, and finally auto-detection.
+type integrationConfig struct {
+	Enabled   *bool  `json:"enabled,omitempty"`
+	Container string `json:"container,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Token     string `json:"token,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+}
+
 type overrideConfig struct {
-	AutoDetection              *bool                   `json:"autoDetection,omitempty"`
-	AutoDetectedGroup          string                  `json:"autoDetectedGroup,omitempty"`
-	AutoDetectionServiceBlacklist []string             `json:"autoDetectionServiceBlacklist,omitempty"`
-	ContainerBlacklist         []string                `json:"containerBlacklist,omitempty"`
-	Containers                 map[string]cardOverride  `json:"containers"`
-	IconSets                   []IconSetConfig         `json:"iconSets,omitempty"`
-	TraefikAPIToken            string                  `json:"traefikAPIToken,omitempty"`
-	UpdateCheck                *bool                   `json:"updateCheck,omitempty"`
-	AuthMode                   string                  `json:"authMode,omitempty"`
-	Storage                    *storageSettings        `json:"storage,omitempty"`
+	AutoDetection                 *bool                        `json:"autoDetection,omitempty"`
+	AutoDetectedGroup             string                       `json:"autoDetectedGroup,omitempty"`
+	AutoDetectionServiceBlacklist []string                     `json:"autoDetectionServiceBlacklist,omitempty"`
+	ContainerBlacklist            []string                     `json:"containerBlacklist,omitempty"`
+	Containers                    map[string]cardOverride      `json:"containers"`
+	IconSets                      []IconSetConfig              `json:"iconSets,omitempty"`
+	Integrations                  map[string]integrationConfig `json:"integrations,omitempty"`
+	TraefikAPIToken               string                       `json:"traefikAPIToken,omitempty"`
+	UpdateCheck                   *bool                        `json:"updateCheck,omitempty"`
+	AuthMode                      string                       `json:"authMode,omitempty"`
+	Storage                       *storageSettings             `json:"storage,omitempty"`
 }
 
 func loadConfig(path string) (*overrideConfig, error) {
@@ -46,6 +59,9 @@ func loadConfig(path string) (*overrideConfig, error) {
 	}
 	if cfg.Containers == nil {
 		cfg.Containers = map[string]cardOverride{}
+	}
+	if cfg.Integrations == nil {
+		cfg.Integrations = map[string]integrationConfig{}
 	}
 	return &cfg, nil
 }
@@ -282,5 +298,3 @@ func resolveAuthMode(cfg *overrideConfig) string {
 	}
 	return "web-auth"
 }
-
-

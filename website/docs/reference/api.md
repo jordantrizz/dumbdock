@@ -67,6 +67,48 @@ the boot attempt gate is disabled, `disabled` is `true`, `disabledReason` holds
 the last failure, `attempts` and `attemptLimit` report the spent budget (for
 example `3` and `3`), and `data` stays `null` until the process restarts.
 
+## GET /api/integrations
+
+Every registered integration, in registry order, with a summary. This is a cache
+read of the last poll: it never calls Docker or a vendor API.
+
+```json
+{
+  "integrations": [
+    {
+      "id": "watchtower",
+      "displayName": "Watchtower",
+      "description": "Reads Watchtower's metrics API: scan counters, last-scan results, and monitored containers.",
+      "detected": true,
+      "enabled": true,
+      "forced": false,
+      "containerName": "watchtower",
+      "image": "containrrr/watchtower:1.7",
+      "url": "http://10.0.5.2:8080",
+      "urlSource": "auto",
+      "authConfigured": true,
+      "disabled": false,
+      "attempts": 0,
+      "attemptLimit": 3,
+      "stats": [{"label": "Scans total", "value": "1"}],
+      "sections": [{"title": "Configuration", "columns": ["Setting", "Value"], "rows": [["HTTP API (metrics)", "yes"]]}],
+      "lastChecked": "2026-11-16T14:32:51Z"
+    }
+  ],
+  "summary": {"registered": 3, "detected": 2, "disabled": 0, "hidden": 1}
+}
+```
+
+`urlSource` is the layer that supplied the endpoint — `config`, `label`, `env`,
+or `auto`. `hidden` marks an integration switched off by an override.
+Credentials and vendor payloads are never serialised; `authConfigured` only
+reports that one is in use.
+
+## GET /api/integrations/{id}
+
+One integration's state, or `404` with `{"error": "unknown integration: …"}` for
+an unregistered id.
+
 ## GET /api/issues
 
 Returns the cached host-issue snapshot.
@@ -241,3 +283,4 @@ dumbdock requires **Traefik v3**. The detected major version is parsed from
 - [Issues tab](../guides/issues.md) — what the issue rows mean.
 - [Storage tab](../guides/storage.md) — the dataset and mount fields.
 - [Traefik dashboard](../guides/traefik.md) — the gate and its disabled state.
+- [Integrations](../guides/integrations.md) — what each field means on the card.

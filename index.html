@@ -171,6 +171,14 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .traefik-stat-card.stat-tcp .stat-count{color:#d29922}
 .traefik-stat-card.stat-middleware .stat-count{color:#3fb950}
 .traefik-stat-card.stat-entrypoint .stat-count{color:#f0883e}
+.traefik-stat-card .stat-hint{font-size:0.7rem;color:#8b949e;margin-top:0.15rem;text-transform:none;letter-spacing:0}
+.integration-badge{display:inline-block;margin-left:0.5rem;padding:0 0.45rem;border-radius:999px;font-size:0.7rem;font-weight:700;line-height:1.5;vertical-align:middle;background:#21262d;color:#8b949e;border:1px solid #30363d}
+.integration-badge.detected{background:#12261e;color:#3fb950;border-color:#238636}
+.integration-badge.forced{background:#1c2333;color:#58a6ff;border-color:#1f6feb}
+.integration-badge.disabled{background:#2d1a1a;color:#f85149;border-color:#da3633}
+.integration-badge.hidden{background:#2b2413;color:#d29922;border-color:#9e6a03}
+.integration-badge.absent{background:#21262d;color:#8b949e}
+.integration-facts td:first-child{width:9rem;color:#8b949e}
 
 .traefik-section{margin-bottom:1.5rem}
 .traefik-section h2{font-size:1.1rem;margin:0 0 0.6rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em}
@@ -276,6 +284,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
     <button class="nav-tab active" id="nav-dashboard" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="nav-tab" id="nav-networking" onclick="switchTab('networking')">Networking</button>
     <button class="nav-tab" id="nav-traefik" onclick="switchTab('traefik')">Traefik</button>
+    <button class="nav-tab" id="nav-integrations" onclick="switchTab('integrations')">Integrations</button>
     <button class="nav-tab" id="nav-issues" onclick="switchTab('issues')" aria-label="Issues">Issues<span class="nav-badge" id="issues-count" style="display:none" aria-label="0 active issues">0</span></button>
     <button class="nav-tab" id="nav-storage" onclick="switchTab('storage')">Storage</button>
     <button class="nav-tab" id="nav-icons" onclick="switchTab('icons')">Icons</button>
@@ -324,6 +333,12 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
   </div>
 </div>
 
+<div id="page-integrations" style="display:none">
+  <div id="integrations-app">
+    <div class="loading">Loading integrations...</div>
+  </div>
+</div>
+
 <div id="page-issues" style="display:none">
   <div id="issues-app">
     <div class="loading">Loading issues...</div>
@@ -343,6 +358,8 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
       <p class="help-intro">Guides for getting the most out of dumbdock. Pick a topic below.</p>
       <ul class="help-toc">
         <li><a href="#help-traefik-api">Configure Traefik API Access</a></li>
+        <li><a href="#help-watchtower-api">Enable the Watchtower HTTP API</a></li>
+        <li><a href="#help-integration-overrides">Override integration detection</a></li>
       </ul>
     </div>
 
@@ -449,6 +466,57 @@ curl -s -u user:pass http://<traefik-host>:8080/api/version</code>
         <li><strong>Partial data</strong> — a few endpoints may 404 when a feature is unused (for example, no TLS certificates configured). This is normal; the tab shows a partial-data notice.</li>
         <li><strong>"Unsupported Traefik version"</strong> — dumbdock requires <strong>Traefik v3</strong>. The Traefik tab shows this banner (and the server logs it once) when the detected major version is not 3. Upgrade Traefik to v3, then reload the tab.</li>
       </ul>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-watchtower-api">
+      <h2>Enable the Watchtower HTTP API</h2>
+      <p class="help-intro">dumbdock reads Watchtower's metrics endpoint to show scan counters, last-scan results, and how many containers it monitors. It never calls the update endpoint, so a dashboard visit cannot trigger an image update.</p>
+
+      <h3>What to enable</h3>
+      <ul class="help-list">
+        <li><strong>Metrics API</strong> — start Watchtower with <code>--http-api-metrics</code> (or <code>WATCHTOWER_HTTP_API_METRICS=true</code>) and an API token in <code>WATCHTOWER_HTTP_API_TOKEN</code>. dumbdock sends the token as a bearer header.</li>
+        <li><strong>Port</strong> — Watchtower serves the API on port <code>8080</code> inside its container. dumbdock tries the container network address first, then a published host port.</li>
+        <li><strong>Update API only</strong> — <code>--http-api-update</code> without metrics lets Watchtower accept triggers, but exposes nothing dumbdock can read. The card shows a note asking for metrics.</li>
+      </ul>
+
+      <h3>Verify it works</h3>
+      <p class="help-step">From the dumbdock container (or any host that can reach Watchtower):</p>
+      <pre class="help-code">curl -s -H "Authorization: Bearer $TOKEN" http://watchtower:8080/v1/metrics</pre>
+      <p class="help-step">Expected: Prometheus text with <code>watchtower_containers_scanned</code>, <code>watchtower_scans_total</code>, and related counters. The <strong>Integrations</strong> card then shows those figures.</p>
+
+      <h3>Caveats</h3>
+      <ul class="help-list">
+        <li>The metrics API is experimental in Watchtower and reports counters since its process started; there is no last-scan timestamp to display.</li>
+        <li>Monitored containers are counted from the <code>com.centurylinklabs.watchtower.enable=true</code> label. Without label filtering the card reports "all running" instead of a precise figure.</li>
+        <li>A wrong or missing token appears as <code>401</code> in the card and one <code>integration-api</code> finding in Issues.</li>
+      </ul>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-integration-overrides">
+      <h2>Override integration detection</h2>
+      <p class="help-intro">dumbdock detects Traefik, Watchtower, and PruneMate by their image repository. When that is wrong — a custom-built image, a renamed fork, two instances, or a tool you do not want monitored — override the detection instead of changing the image.</p>
+
+      <h3>Three ways to set an override</h3>
+      <p class="help-step">They are consulted in this order, so a config block beats a label and a label beats an environment variable:</p>
+      <ul class="help-list">
+        <li><strong>Config file</strong> — an <code>integrations</code> block in <code>dumbdock.json</code>: <code>"integrations": {"watchtower": {"enabled": true, "url": "http://watchtower:8080", "token": "..."}}</code>.</li>
+        <li><strong>Container label</strong> — <code>dumbdock.integration.watchtower.enabled</code>, <code>.url</code>, <code>.container</code>, <code>.token</code>, <code>.user</code>, <code>.pass</code>.</li>
+        <li><strong>Environment</strong> — <code>DUMBDOCK_INTEGRATION_WATCHTOWER_ENABLED</code>, <code>_URL</code>, <code>_CONTAINER</code>, <code>_TOKEN</code>, <code>_USER</code>, <code>_PASS</code>. The id is upper-cased, so <code>DUMBDOCK_INTEGRATION_PRUNEMATE_URL</code>.</li>
+      </ul>
+
+      <h3>What each field does</h3>
+      <ul class="help-list">
+        <li><strong>enabled</strong> — <code>false</code> hides the integration completely: no polling, no findings, and a "Hidden by configuration" card. Use it when a matching container must not be monitored.</li>
+        <li><strong>container</strong> — pins one container by name and treats it as this integration <em>even when its image does not match</em>. This covers a custom build and a host with two instances. A pin that matches nothing reports "Not detected"; it never falls back to another container.</li>
+        <li><strong>url</strong> — polls the API at that address with no container needed. Use it for a tool on another host or behind a proxy. Only <code>http</code>/<code>https</code> is accepted, credentials in the URL are rejected (use token or user/pass), and link-local addresses are refused.</li>
+        <li><strong>token</strong> / <strong>user</strong> / <strong>pass</strong> — credentials for the API. They are sent in the authorization header and never appear in logs, payloads, or Issues.</li>
+      </ul>
+
+      <h3>Examples</h3>
+      <pre class="help-code">labels:
+  - "dumbdock.integration.watchtower.container=my-watchtower"
+  - "dumbdock.integration.prunemate.enabled=false"</pre>
+      <p class="help-step">Traefik keeps its original names as aliases: <code>dumbdock.traefik.api</code>, <code>TRAEFIK_API_URL</code>, <code>TRAEFIK_API_TOKEN</code>, <code>TRAEFIK_API_USER</code>, and <code>TRAEFIK_API_PASS</code> still work.</p>
     </div>
   </div>
 </div>
@@ -1074,6 +1142,11 @@ setInterval(function() {
   if (traefikPage && traefikPage.style.display !== 'none') {
     loadTraefik();
   }
+  // Only refresh integration state while the Integrations tab is visible.
+  var integrationsPage = document.getElementById('page-integrations');
+  if (integrationsPage && integrationsPage.style.display !== 'none') {
+    loadIntegrations();
+  }
   // Only refresh networking data if the Networking tab is currently visible.
   var networkingPage = document.getElementById('page-networking');
   if (networkingPage && networkingPage.style.display !== 'none') {
@@ -1177,7 +1250,7 @@ let iconsData = null;
 let issuesData = null;
 let storageData = null;
 // Tab ids that may appear in the URL fragment (#dashboard, #networking, ...).
-var TAB_IDS = ['dashboard', 'networking', 'traefik', 'issues', 'storage', 'icons', 'help'];
+var TAB_IDS = ['dashboard', 'networking', 'traefik', 'integrations', 'issues', 'storage', 'icons', 'help'];
 // The currently displayed tab; drives refreshActiveTab() and the hashchange guard.
 var currentTab = 'dashboard';
 
@@ -1235,6 +1308,8 @@ function refreshActiveTab() {
     loadNetworking();
   } else if (currentTab === 'traefik') {
     loadTraefik();
+  } else if (currentTab === 'integrations') {
+    loadIntegrations();
   } else if (currentTab === 'issues') {
     loadIssues(true);
   } else if (currentTab === 'storage') {
@@ -1566,14 +1641,17 @@ function issueCategoryLabel(category) {
     'traefik-entity': 'Traefik entities',
     'traefik-backend': 'Traefik backends',
     'container-storage': 'Storage paths',
-    'container-backup': 'Database backups'
+    'container-backup': 'Database backups',
+    'integration-api': 'Integration API',
+    'integration-status': 'Integration status'
   };
   return labels[category] || String(category || 'other');
 }
 
 // Stable category order, then any unknown category in first-seen order.
 var ISSUE_CATEGORY_ORDER = ['container-health', 'traefik-api', 'traefik-backend', 'traefik-entity',
-  'container-backup', 'container-storage', 'container-exposure', 'container-update', 'docker-version', 'traefik-version'];
+  'container-backup', 'container-storage', 'container-exposure', 'container-update', 'docker-version',
+  'traefik-version', 'integration-api', 'integration-status'];
 
 function groupIssuesByCategory(items) {
   var groups = [];
@@ -1909,6 +1987,213 @@ function copyStorageJSON() {
   } catch (e) {
     if (btn) btn.textContent = 'Failed';
   }
+}
+
+// ===== Integrations =====
+
+async function loadIntegrations() {
+  var container = document.getElementById('integrations-app');
+  if (!container) return;
+  try {
+    var res = await apiFetch('/api/integrations');
+    if (!res) return;
+    var data = await res.json();
+    renderIntegrations(data);
+  } catch (e) {
+    container.innerHTML = '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body"><div class="err-title">Failed to load integrations</div><div class="err-detail">' + escapeHtml(e.message) + '</div><button class="err-retry" onclick="loadIntegrations()">Retry</button></div></div>';
+  }
+}
+
+// integrationStateBadge reports the effective state at a glance. Order matters:
+// hidden and disabled are operator-visible states, not detection results.
+function integrationStateBadge(st) {
+  if (st.hidden || st.enabled === false) {
+    return '<span class="integration-badge hidden">Hidden</span>';
+  }
+  if (st.disabled) {
+    return '<span class="integration-badge disabled">Disabled</span>';
+  }
+  if (st.forced && !st.detected) {
+    return '<span class="integration-badge forced">Override</span>';
+  }
+  if (st.detected) {
+    return '<span class="integration-badge detected">Detected</span>';
+  }
+  return '<span class="integration-badge absent">Not detected</span>';
+}
+
+function integrationSourceLabel(source) {
+  switch (source) {
+    case 'config': return 'from config';
+    case 'label': return 'from container label';
+    case 'env': return 'from environment';
+    case 'auto': return 'auto-detected';
+    default: return '';
+  }
+}
+
+function integrationAge(iso) {
+  if (!iso) return 'never';
+  var then = Date.parse(iso);
+  if (isNaN(then)) return 'unknown';
+  var secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (secs < 60) return secs + 's ago';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
+function renderIntegrationCard(st) {
+  var name = st.displayName || st.id || 'integration';
+  var html = '<div class="traefik-section integration-card">';
+  html += '<h2>' + escapeHtml(name) + ' ' + integrationStateBadge(st) + '</h2>';
+  if (st.description) {
+    html += '<p class="help-intro">' + escapeHtml(st.description) + '</p>';
+  }
+
+  if (st.hidden || st.enabled === false) {
+    html += '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body">' +
+      '<div class="err-title">Hidden by configuration</div>' +
+      '<div class="err-detail">Detection is switched off for ' + escapeHtml(name) +
+      '. Remove <code>integrations.' + escapeHtml(st.id) + '.enabled=false</code> or set <code>' +
+      'dumbdock.integration.' + escapeHtml(st.id) + '.enabled=true</code> to detect it again. ' +
+      'See the <a href="#help-integration-overrides" onclick="switchTab(\'help\')">Help</a> tab.</div></div></div>';
+    html += '</div>';
+    return html;
+  }
+
+  if (st.disabled) {
+    var reason = escapeHtml(st.disabledReason || st.error || 'unknown error');
+    var attempts = (typeof st.attempts === 'number' ? st.attempts : 3) + ' of ' +
+      (typeof st.attemptLimit === 'number' ? st.attemptLimit : 3);
+    html += '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body">' +
+      '<div class="err-title">Unable to access ' + escapeHtml(name) + ' API</div>' +
+      '<div class="err-detail">Checks are disabled for this run after ' + escapeHtml(attempts) +
+      ' failed attempts — restart the dumbdock container to try again.<br>' + reason + '</div></div></div>';
+  } else if (st.error) {
+    html += '<div class="traefik-error-banner"><span class="err-icon">&#9888;</span><div class="err-body">' +
+      '<div class="err-title">' + escapeHtml(name) + ' container detected but its API is not accessible</div>' +
+      '<div class="err-detail">' + escapeHtml(st.error) + '</div>' +
+      '<button class="err-retry" onclick="loadIntegrations()">Retry</button></div></div>';
+  }
+
+  html += '<div class="traefik-table-wrap"><table class="traefik-table integration-facts"><tbody>';
+  var facts = [];
+  if (st.containerName) {
+    var containerCell = escapeHtml(st.containerName);
+    if (st.image) {
+      containerCell += ' <code>' + escapeHtml(st.image) + '</code>';
+    }
+    facts.push(['Container', containerCell]);
+  } else {
+    facts.push(['Container', 'not detected']);
+  }
+  if (st.url) {
+    var endpointCell = '<code>' + escapeHtml(st.url) + '</code>';
+    var source = integrationSourceLabel(st.urlSource);
+    if (source) {
+      endpointCell += ' <span class="traefik-source">' + escapeHtml(source) + '</span>';
+    }
+    facts.push(['Endpoint', endpointCell]);
+  } else {
+    facts.push(['Endpoint', 'not resolved']);
+  }
+  facts.push(['Last checked', escapeHtml(integrationAge(st.lastChecked))]);
+  if (st.attemptLimit) {
+    facts.push(['Attempts', String(Math.min(st.attempts || 0, st.attemptLimit)) + ' of ' + String(st.attemptLimit)]);
+  }
+  if (st.authConfigured) {
+    facts.push(['Credentials', 'configured']);
+  }
+  for (var i = 0; i < facts.length; i++) {
+    html += '<tr><td><strong>' + escapeHtml(facts[i][0]) + '</strong></td><td>' + facts[i][1] + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+
+  if (st.warnings && st.warnings.length) {
+    html += '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body">' +
+      '<div class="err-title">Notes</div><div class="err-detail">' +
+      st.warnings.map(function (w) { return escapeHtml(w); }).join('<br>') +
+      '</div></div></div>';
+  }
+
+  if (st.stats && st.stats.length) {
+    html += '<div class="traefik-stats">';
+    for (var j = 0; j < st.stats.length; j++) {
+      var stat = st.stats[j];
+      html += '<div class="traefik-stat-card"><div class="stat-count">' + escapeHtml(String(stat.value)) + '</div>' +
+        '<div class="stat-label">' + escapeHtml(stat.label) + '</div>' +
+        (stat.hint ? '<div class="stat-hint">' + escapeHtml(stat.hint) + '</div>' : '') + '</div>';
+    }
+    html += '</div>';
+  }
+
+  if (st.sections && st.sections.length) {
+    for (var k = 0; k < st.sections.length; k++) {
+      var section = st.sections[k];
+      html += '<h3>' + escapeHtml(section.title) + '</h3>';
+      html += '<div class="traefik-table-wrap"><table class="traefik-table"><thead><tr>';
+      for (var c = 0; c < (section.columns || []).length; c++) {
+        html += '<th>' + escapeHtml(section.columns[c]) + '</th>';
+      }
+      html += '</tr></thead><tbody>';
+      var rows = section.rows || [];
+      for (var r = 0; r < rows.length; r++) {
+        html += '<tr>';
+        for (var cell = 0; cell < rows[r].length; cell++) {
+          html += '<td>' + escapeHtml(String(rows[r][cell])) + '</td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+  }
+
+  if (st.id === 'traefik' && st.detected) {
+    html += '<p class="help-intro">Routers, services, middlewares, and certificates are on the ' +
+      '<a href="#traefik" onclick="switchTab(\'traefik\')">Traefik tab</a>.</p>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// renderIntegrations draws every registered integration. It is pure: it reads
+// the payload and writes escaped markup, so a hostile container name or image
+// cannot become markup.
+function renderIntegrations(payload) {
+  var container = document.getElementById('integrations-app');
+  if (!container) return;
+  var list = (payload && payload.integrations) || [];
+  var summary = (payload && payload.summary) || {};
+  if (!list.length) {
+    container.innerHTML = '<div class="traefik-empty">No integrations are registered.</div>';
+    return;
+  }
+  var anyDetected = false;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].detected || list[i].forced) {
+      anyDetected = true;
+    }
+  }
+  var html = '<div class="traefik-section"><h2>Integrations</h2>' +
+    '<p class="help-intro">' + escapeHtml(String(summary.registered || list.length)) + ' registered · ' +
+    escapeHtml(String(summary.detected || 0)) + ' detected · ' +
+    escapeHtml(String(summary.hidden || 0)) + ' hidden by configuration. ' +
+    'dumbdock reads these tools and never changes them.</p></div>';
+  if (!anyDetected) {
+    html += '<div class="traefik-info-banner"><span class="err-icon">&#8505;</span><div class="err-body">' +
+      '<div class="err-title">No integrations detected</div>' +
+      '<div class="err-detail">Start one of the supported containers, or point at an API yourself. ' +
+      'For example, force-detection for Watchtower with <code>dumbdock.integration.watchtower.enabled=true</code> ' +
+      'and <code>dumbdock.integration.watchtower.url=http://watchtower:8080</code> as container labels, ' +
+      'environment variables, or an <code>integrations.watchtower</code> block in <code>dumbdock.json</code>. ' +
+      'See the <a href="#help-integration-overrides" onclick="switchTab(\'help\')">Help</a> tab.</div></div></div>';
+  }
+  for (var j = 0; j < list.length; j++) {
+    html += renderIntegrationCard(list[j]);
+  }
+  container.innerHTML = html;
 }
 
 // ===== Traefik Dashboard =====

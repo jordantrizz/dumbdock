@@ -30,33 +30,37 @@ const (
 type issueCategory string
 
 const (
-	categoryExposure        issueCategory = "container-exposure"
-	categoryUpdate          issueCategory = "container-update"
-	categoryHealth          issueCategory = "container-health"
-	categoryDockerVersion   issueCategory = "docker-version"
-	categoryTraefikAPI      issueCategory = "traefik-api"
-	categoryTraefikVersion  issueCategory = "traefik-version"
-	categoryTraefikEntity   issueCategory = "traefik-entity"
-	categoryTraefikBackend  issueCategory = "traefik-backend"
-	categoryStorage         issueCategory = "container-storage"
-	categoryBackup          issueCategory = "container-backup"
+	categoryExposure       issueCategory = "container-exposure"
+	categoryUpdate         issueCategory = "container-update"
+	categoryHealth         issueCategory = "container-health"
+	categoryDockerVersion  issueCategory = "docker-version"
+	categoryTraefikAPI     issueCategory = "traefik-api"
+	categoryTraefikVersion issueCategory = "traefik-version"
+	categoryTraefikEntity  issueCategory = "traefik-entity"
+	categoryTraefikBackend issueCategory = "traefik-backend"
+	categoryStorage        issueCategory = "container-storage"
+	categoryBackup         issueCategory = "container-backup"
+	// Integration findings produced by the framework. Traefik keeps its four
+	// dedicated categories; every newer integration uses these two.
+	categoryIntegrationAPI    issueCategory = "integration-api"
+	categoryIntegrationStatus issueCategory = "integration-status"
 )
 
 // hostIssue is one reported finding. It deliberately carries no Docker labels,
 // registry tokens, Traefik credentials, or raw log text.
 type hostIssue struct {
-	ID            string        `json:"id"`
-	Category      issueCategory `json:"category"`
-	Severity      issueSeverity `json:"severity"`
-	Title         string        `json:"title"`
-	Detail        string        `json:"detail"`
-	Source        string        `json:"source"`
-	ContainerID   string        `json:"containerId,omitempty"`
-	ContainerName string        `json:"containerName,omitempty"`
-	FirstObservedAt time.Time   `json:"firstObservedAt"`
-	LastObservedAt  time.Time   `json:"lastObservedAt"`
-	Acknowledged    bool        `json:"acknowledged"`
-	AcknowledgedAt  *time.Time  `json:"acknowledgedAt,omitempty"`
+	ID              string        `json:"id"`
+	Category        issueCategory `json:"category"`
+	Severity        issueSeverity `json:"severity"`
+	Title           string        `json:"title"`
+	Detail          string        `json:"detail"`
+	Source          string        `json:"source"`
+	ContainerID     string        `json:"containerId,omitempty"`
+	ContainerName   string        `json:"containerName,omitempty"`
+	FirstObservedAt time.Time     `json:"firstObservedAt"`
+	LastObservedAt  time.Time     `json:"lastObservedAt"`
+	Acknowledged    bool          `json:"acknowledged"`
+	AcknowledgedAt  *time.Time    `json:"acknowledgedAt,omitempty"`
 }
 
 // issueCoverageSource reports whether one input to the issue collectors was
@@ -70,9 +74,9 @@ type issueCoverageSource struct {
 
 // issueCoverage carries the collection-quality metadata for a snapshot.
 type issueCoverage struct {
-	CollectionComplete bool                  `json:"collectionComplete"`
-	DockerVersion      issueCoverageSource   `json:"dockerVersion"`
-	Warnings           []string              `json:"warnings,omitempty"`
+	CollectionComplete bool                `json:"collectionComplete"`
+	DockerVersion      issueCoverageSource `json:"dockerVersion"`
+	Warnings           []string            `json:"warnings,omitempty"`
 }
 
 // issuesResponse is the payload of GET /api/issues.
@@ -85,11 +89,11 @@ type issuesResponse struct {
 }
 
 const (
-	issueStateFileName  = "issues-acknowledged.json"
-	issueStateVersion   = 1
-	maxIssueStateBytes  = 1 << 20 // 1 MiB
-	issueStateFileMode  = 0o600
-	issueStateDirMode   = 0o700
+	issueStateFileName = "issues-acknowledged.json"
+	issueStateVersion  = 1
+	maxIssueStateBytes = 1 << 20 // 1 MiB
+	issueStateFileMode = 0o600
+	issueStateDirMode  = 0o700
 )
 
 // errIssueNotFound is returned when an acknowledgement names an ID that is not
@@ -672,13 +676,13 @@ func collectTraefikIssues(s traefikSnapshot) ([]hostIssue, []string, bool) {
 			detail = fmt.Sprintf("Traefik API disabled after %d attempts", limit)
 		}
 		return []hostIssue{{
-				ID:       newIssueID(categoryTraefikAPI, "traefik", "api"),
-				Category: categoryTraefikAPI,
-				Severity: severityError,
-				Title:    "Traefik API unavailable (disabled until restart)",
-				Detail:   truncateForLog(detail, 300),
-				Source:   "traefik",
-			}}, []string{fmt.Sprintf("traefik: API disabled after %d attempts (restart dumbdock to retry)", limit)}, true
+			ID:       newIssueID(categoryTraefikAPI, "traefik", "api"),
+			Category: categoryTraefikAPI,
+			Severity: severityError,
+			Title:    "Traefik API unavailable (disabled until restart)",
+			Detail:   truncateForLog(detail, 300),
+			Source:   "traefik",
+		}}, []string{fmt.Sprintf("traefik: API disabled after %d attempts (restart dumbdock to retry)", limit)}, true
 	}
 
 	found := s.Found

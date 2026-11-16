@@ -34,11 +34,27 @@ useful for containers you cannot or do not want to re-label.
 | `containerBlacklist` | array of strings | `[]` | Container names hidden entirely from the dashboard, e.g. `["dumbdock", "traefik"]`. |
 | `authMode` | string | `web-auth` | `none`, `http-auth`, or `web-auth`. `DUMBDOCK_AUTH_MODE` overrides it. |
 | `containers` | object | `{}` | Per-container overrides keyed by container name. |
+| `integrations` | object | `{}` | Per-integration overrides, keyed by `traefik`, `watchtower`, or `prunemate`. See [Integrations](../guides/integrations.md). |
 | `iconSets` | array | see [Icons](../guides/icons.md) | Icon providers. When present, replaces the built-in defaults entirely. |
 
 The file also accepts `updateCheck` (boolean) and the `storage.*` keys
 (`containerRoot`, `dataRoot`, `backupRoot`, `backups.<project>/<service>.maxAge`)
 and `traefikAPIToken`.
+
+The `integrations` block takes `enabled`, `container`, `url`, `token`,
+`username`, and `password` per integration:
+
+```json
+{
+  "integrations": {
+    "watchtower": {"url": "http://watchtower:8080", "token": "your-token"},
+    "prunemate": {"enabled": false}
+  }
+}
+```
+
+A config value beats a container label, which beats an environment variable. An
+unknown id is reported as a startup warning.
 
 ## Precedence
 

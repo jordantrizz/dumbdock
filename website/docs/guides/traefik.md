@@ -4,8 +4,10 @@ description: What the Traefik tab shows, how dumbdock resolves the API URL, and 
 ---
 
 The **Traefik** tab is always visible in the navigation bar. When a running
-Traefik container is detected (an image name containing "traefik"), the tab
-shows a full status dashboard fetched from the Traefik API. With no Traefik
+Traefik container is detected (the image repository is `traefik`, matched
+exactly so a lookalike such as `traefik-forward-auth` is ignored — see
+[Integrations](integrations.md)), the tab shows a full status dashboard fetched
+from the Traefik API. With no Traefik
 container it shows install guidance including a `docker run` example; with a
 container detected but the API unreachable it shows the general error and the
 resolved API URL.
@@ -117,6 +119,9 @@ Two modes are supported:
 The auth header is added server-side only; credentials never reach the browser.
 
 ## Related
+
+- [Integrations](integrations.md) — detection, overrides, and the shared boot
+  gate.
 
 - [Issues tab](./issues.md) — Traefik API and entity failures become findings.
 - [Help tab](./help-tab.md) — the in-page guide for issuing the API.

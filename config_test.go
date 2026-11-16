@@ -133,6 +133,8 @@ func TestValidateConfig(t *testing.T) {
 			"DUMBDOCK_BACKUP_ROOT",
 			"DUMBDOCK_BACKUP_MAX_AGE",
 			"DUMBDOCK_BACKUP_SCAN_INTERVAL",
+			"DUMBDOCK_INTEGRATION_WATCHTOWER_ENABLED",
+			"DUMBDOCK_INTEGRATION_WATCHTOWER_URL",
 		} {
 			t.Setenv(k, "")
 		}
@@ -222,6 +224,37 @@ func TestValidateConfig(t *testing.T) {
 			authMode:   "none",
 			env:        map[string]string{"DUMBDOCK_BACKUP_MAX_AGE": "nope"},
 			wantFields: []string{"DUMBDOCK_BACKUP_MAX_AGE"},
+		},
+		{
+			name: "unknown integration id",
+			cfg: &overrideConfig{Integrations: map[string]integrationConfig{
+				"nope": {},
+			}},
+			authMode:   "none",
+			wantFields: []string{"integrations.nope"},
+		},
+		{
+			name: "invalid integration url",
+			cfg: &overrideConfig{Integrations: map[string]integrationConfig{
+				"watchtower": {URL: "javascript:alert(1)"},
+			}},
+			authMode:   "none",
+			wantFields: []string{"integrations.watchtower.url"},
+		},
+		{
+			name:       "invalid integration env enabled",
+			cfg:        &overrideConfig{},
+			authMode:   "none",
+			env:        map[string]string{"DUMBDOCK_INTEGRATION_WATCHTOWER_ENABLED": "maybe"},
+			wantFields: []string{"DUMBDOCK_INTEGRATION_WATCHTOWER_ENABLED"},
+		},
+		{
+			name: "valid integration config",
+			cfg: &overrideConfig{Integrations: map[string]integrationConfig{
+				"watchtower": {URL: "http://watchtower:8080"},
+				"prunemate":  {},
+			}},
+			authMode: "none",
 		},
 		{
 			name: "valid icon set entry",

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -196,81 +196,30 @@ type traefikTLSCertificate struct {
 }
 
 // ---------------------------------------------------------------------------
-// Global state (updated by the refresh goroutine, read by the HTTP handler)
+// Traefik integration (the state itself lives in the integration store)
 // ---------------------------------------------------------------------------
 
-// traefikAttemptLimit is the number of availability attempts the boot gate
-// allows before Traefik API work is disabled for the life of the process.
-const traefikAttemptLimit = 3
+// traefikGate is the shared per-integration gate under its Traefik name, so the
+// documented policy and the existing tests keep reading one type.
+type traefikGate = integrationGate
 
-// traefikGate is the boot gate that bounds Traefik API availability attempts.
-// It counts a failed attempt only until the first fetch returns at least one
-// answered endpoint; a success disarms it permanently for this process, so
-// later outages keep the normal recovery behavior. A disabled gate is cleared
-// only by restarting dumbdock.
-type traefikGate struct {
-	attempts       int
-	disabled       bool
-	disabledReason string
-	passed         bool
-}
-
-// fail records one failed availability attempt and reports the attempt number
-// plus whether this attempt disabled the gate. It is a no-op once the gate has
-// passed or is already disabled.
-func (g *traefikGate) fail(reason string) (attempt int, disabled bool) {
-	if g.passed || g.disabled {
-		return 0, false
-	}
-	g.attempts++
-	if g.attempts >= traefikAttemptLimit {
-		g.disabled = true
-		g.disabledReason = reason
-		return g.attempts, true
-	}
-	return g.attempts, false
-}
-
-// pass disarms the gate for the rest of the process. It never re-enables a
-// disabled gate.
-func (g *traefikGate) pass() {
-	if g.disabled {
-		return
-	}
-	g.passed = true
-}
-
-// shouldAttempt reports whether Traefik API work is still permitted.
-func (g *traefikGate) shouldAttempt() bool { return !g.disabled }
-
+// Post-boot log dedup. Collect runs from the refresh goroutine only; the mutex
+// keeps direct test calls race-free.
 var (
-	traefikMu             sync.RWMutex
-	traefikContainerFound bool
-	traefikAPIURL         string
-	traefikData           *traefikDashboardData
-	traefikDataErr        string
-	// traefikGateState is the boot attempt budget. It is process state: a
-	// restart is the only way to re-arm it.
-	traefikGateState traefikGate
-	// Log-dedup state: the API error signature and reachability from the last
-	// refresh, so repeated failures do not spam the log on every poll.
+	traefikLogMu         sync.Mutex
 	traefikLastErrSig    string
 	traefikLastReachable bool
 )
 
-// resetTraefikState clears the Traefik cache, log-dedup state, and boot gate.
-// It exists for tests so each case starts from a fresh process-like state; it
-// is never called from production code.
+// resetTraefikState clears the published state, the log-dedup state, and the
+// boot gate. It exists for tests so each case starts from a fresh
+// process-like state; it is never called from production code.
 func resetTraefikState() {
-	traefikMu.Lock()
-	defer traefikMu.Unlock()
-	traefikContainerFound = false
-	traefikAPIURL = ""
-	traefikData = nil
-	traefikDataErr = ""
+	integrationStoreState.reset("traefik")
+	traefikLogMu.Lock()
 	traefikLastErrSig = ""
 	traefikLastReachable = false
-	traefikGateState = traefikGate{}
+	traefikLogMu.Unlock()
 }
 
 // traefikEndpointNames is the fixed set of Traefik API endpoints fetched by
@@ -350,7 +299,7 @@ func traefikLogSignature(data *traefikDashboardData, allFailed bool) string {
 
 // traefikSnapshot is the consistent view of the Traefik state that the HTTP
 // handler and the issues collector consume. It is the only shape callers see,
-// so no caller reads the package globals directly.
+// so no caller reads the store directly.
 type traefikSnapshot struct {
 	Found          bool
 	APIURL         string
@@ -362,20 +311,31 @@ type traefikSnapshot struct {
 	AttemptLimit   int
 }
 
+// snapshotFromIntegrationState converts the published integration state into
+// the Traefik-shaped snapshot.
+func snapshotFromIntegrationState(st integrationState) traefikSnapshot {
+	snap := traefikSnapshot{
+		Found:          st.Detected,
+		APIURL:         st.URL,
+		Err:            st.Error,
+		Disabled:       st.Disabled,
+		DisabledReason: st.DisabledReason,
+		Attempts:       st.Attempts,
+		AttemptLimit:   st.AttemptLimit,
+	}
+	if data, ok := st.VendorData.(*traefikDashboardData); ok {
+		snap.Data = data
+	}
+	return snap
+}
+
 // getTraefikState returns a snapshot of the current Traefik state.
 func getTraefikState() traefikSnapshot {
-	traefikMu.RLock()
-	defer traefikMu.RUnlock()
-	return traefikSnapshot{
-		Found:          traefikContainerFound,
-		APIURL:         traefikAPIURL,
-		Data:           traefikData,
-		Err:            traefikDataErr,
-		Disabled:       traefikGateState.disabled,
-		DisabledReason: traefikGateState.disabledReason,
-		Attempts:       traefikGateState.attempts,
-		AttemptLimit:   traefikAttemptLimit,
+	st, ok := integrationStoreState.get("traefik")
+	if !ok {
+		return traefikSnapshot{AttemptLimit: integrationAttemptLimit}
 	}
+	return snapshotFromIntegrationState(st)
 }
 
 // traefikAPIResponse builds the JSON payload of GET /api/traefik from a
@@ -394,91 +354,37 @@ func traefikAPIResponse(snap traefikSnapshot) map[string]interface{} {
 	}
 }
 
-// traefikRecordFailureLocked logs one failed boot attempt and, when this
-// attempt spent the last one, the single disable line. The caller must hold
-// traefikMu. A gate that has already passed or is disabled records nothing:
-// post-boot failures keep the existing state-change logging instead.
-func traefikRecordFailureLocked(reason string) {
-	attempt, disabled := traefikGateState.fail(reason)
-	if attempt == 0 {
-		return
-	}
-	log.Printf("traefik: attempt %d/%d failed: %s", attempt, traefikAttemptLimit, reason)
-	if disabled {
-		log.Printf("traefik: unable to access Traefik API after %d attempts — disabled until dumbdock restarts: %s",
-			traefikAttemptLimit, reason)
-	}
-}
-
 // ---------------------------------------------------------------------------
-// Detection: find a running Traefik container
+// Detection
 // ---------------------------------------------------------------------------
 
-// findTraefikContainer scans the given container list for a running container
-// whose image contains "traefik" (case-insensitive).  Returns the first
-// match, or nil.
+// findTraefikContainer scans the given container list for the running Traefik
+// container using the shared exact-repository matcher. A substring match would
+// adopt traefik-forward-auth, which is why the matcher is exact.
 func findTraefikContainer(containers []dockerContainer) *dockerContainer {
-	for i := range containers {
-		if containers[i].State != "running" {
-			continue
-		}
-		if strings.Contains(strings.ToLower(containers[i].Image), "traefik") {
-			return &containers[i]
-		}
-	}
-	return nil
+	return detectIntegrationContainer(traefikIntegrationInstance(), containers, integrationSettings{Enabled: true})
 }
 
 // ---------------------------------------------------------------------------
-// Docker inspect
+// API URL resolution (auto-detection only; overrides are resolved first)
 // ---------------------------------------------------------------------------
 
-// inspectTraefikContainer calls the Docker API to get full container
-// metadata (networks, ports, labels, env, cmd).
-func inspectTraefikContainer(dockerClient *http.Client, containerID string) (*dockerInspectResponse, error) {
-	url := fmt.Sprintf("http://localhost/v1.45/containers/%s/json", containerID)
-	resp, err := dockerClient.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("inspect container: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("container inspect returned status %d", resp.StatusCode)
-	}
-
-	var inspect dockerInspectResponse
-	if err := json.NewDecoder(resp.Body).Decode(&inspect); err != nil {
-		return nil, fmt.Errorf("decode inspect response: %w", err)
-	}
-	return &inspect, nil
-}
-
-// ---------------------------------------------------------------------------
-// API URL resolution (fallback chain)
-// ---------------------------------------------------------------------------
-
-// resolveTraefikAPIURL uses the following fallback chain to determine the
-// Traefik API base URL:
+// resolveTraefikAPIURL resolves the Traefik API base URL from the container
+// itself, after every override layer has been consulted:
 //
-//  1. The dumbdock.traefik.api label on the container.
-//  2. The TRAEFIK_API_URL environment variable.
-//  3. The container's IP address on its first Docker network, plus port 8080.
-//  4. The first published port (preferring 8080) on 127.0.0.1.
+//  1. The container's IP address on its first Docker network, plus the API port.
+//  2. The first published port (preferring the API port) on 127.0.0.1.
+//
+// The dumbdock.traefik.api label and TRAEFIK_API_URL are handled by the
+// override chain (Settings), so they are deliberately absent here.
 func resolveTraefikAPIURL(inspect *dockerInspectResponse) (string, error) {
-	// 1. Container label dumbdock.traefik.api
-	if u, ok := inspect.Config.Labels["dumbdock.traefik.api"]; ok && u != "" {
-		return u, nil
+	if inspect == nil {
+		return "", fmt.Errorf("no container inspect data")
 	}
 
-	// 2. Environment variable TRAEFIK_API_URL
-	if u := os.Getenv("TRAEFIK_API_URL"); u != "" {
-		return u, nil
-	}
-
-	// 3. Container IP on a Docker network + port 8080
+	// 1. Container IP on a Docker network.
 	var containerIP string
-	// Prefer "traefik" named network, otherwise pick the first network with an IP.
+	// Prefer a "traefik" named network, otherwise pick the first network with an IP.
 	for netName, net := range inspect.NetworkSettings.Networks {
 		if net.IPAddress != "" {
 			containerIP = net.IPAddress
@@ -488,19 +394,17 @@ func resolveTraefikAPIURL(inspect *dockerInspectResponse) (string, error) {
 		}
 	}
 	if containerIP != "" {
-		// Determine the API port: check the running command for
-		// --entrypoints.traefik.address=:PORT, default to 8080.
 		port := findTraefikAPIPort(inspect.Config.Cmd)
 		return fmt.Sprintf("http://%s:%d", containerIP, port), nil
 	}
 
-	// 4. Published port on localhost
+	// 2. Published port on localhost.
 	port := findPublishedAPIPort(inspect.NetworkSettings.Ports)
 	if port > 0 {
 		return fmt.Sprintf("http://127.0.0.1:%d", port), nil
 	}
 
-	return "", fmt.Errorf("unable to resolve Traefik API URL: no label, no env var, no network IP, and no published port found")
+	return "", fmt.Errorf("unable to resolve Traefik API URL: no override, no network IP, and no published port found")
 }
 
 // findTraefikAPIPort scans the container's command line for an entrypoint
@@ -565,11 +469,9 @@ func findPublishedAPIPort(ports map[string][]struct {
 }
 
 // traefikCandidateURLs returns the ordered, de-duplicated list of URLs to try
-// when the primary (container-IP) URL is unreachable.  The primary URL is
-// always first; it is followed by the published 8080/tcp host port, the
-// container IP on port 8081 (the default insecure API entrypoint), and any
-// other published TCP port.  Candidates are only added when they differ from
-// the primary URL.
+// when the primary URL is unreachable.  The primary URL is always first; it is
+// followed by the published API host port, the container IP on port 8081 (the
+// default insecure API entrypoint), and any other published TCP port.
 func traefikCandidateURLs(inspect *dockerInspectResponse, primary string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -644,32 +546,7 @@ func probeTraefikAPIURL(client *http.Client, baseURL string) bool {
 }
 
 // ---------------------------------------------------------------------------
-// API authentication
-// ---------------------------------------------------------------------------
-
-// getTraefikAuthHeader returns an HTTP Authorization header value, or empty
-// string if no auth is configured.  It checks (in order):
-//  1. TRAEFIK_API_TOKEN env var → Bearer
-//  2. cfg.TraefikAPIToken → Bearer
-//  3. TRAEFIK_API_USER + TRAEFIK_API_PASS env vars → Basic
-func getTraefikAuthHeader(cfg *overrideConfig) string {
-	if token := os.Getenv("TRAEFIK_API_TOKEN"); token != "" {
-		return "Bearer " + token
-	}
-	if cfg != nil && cfg.TraefikAPIToken != "" {
-		return "Bearer " + cfg.TraefikAPIToken
-	}
-	user := os.Getenv("TRAEFIK_API_USER")
-	pass := os.Getenv("TRAEFIK_API_PASS")
-	if user != "" || pass != "" {
-		raw := user + ":" + pass
-		return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
-	}
-	return ""
-}
-
-// ---------------------------------------------------------------------------
-// Fetching data from Traefik API
+// Fetching data from the Traefik API
 // ---------------------------------------------------------------------------
 
 // fetchTraefikEndpoint is a generic helper that makes an authenticated GET
@@ -698,7 +575,7 @@ func fetchTraefikEndpoint(httpClient *http.Client, apiURL, path, authHeader stri
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET %s returned status %d", path, resp.StatusCode)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDockerAPIBodyBytes)).Decode(target); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 	return nil
@@ -831,86 +708,119 @@ func fetchTraefikDashboard(httpClient *http.Client, apiURL, authHeader string) *
 }
 
 // ---------------------------------------------------------------------------
-// Top-level refresh function (called by the refresh goroutine)
+// The integration adapter
 // ---------------------------------------------------------------------------
 
-// refreshTraefik is called from main.go's refresh() to update the global
-// Traefik state.  It is safe for concurrent access.
-func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg *overrideConfig) {
-	container := findTraefikContainer(containers)
+// traefikIntegration adapts the Traefik collector to the integration
+// framework. It declares no minimum poll interval: Traefik keeps its existing
+// every-cycle behaviour.
+type traefikIntegration struct{}
 
-	traefikMu.Lock()
-	defer traefikMu.Unlock()
+func traefikIntegrationInstance() integration { return traefikIntegration{} }
 
-	// Once the boot gate is disabled no Traefik API work happens until the
-	// process restarts. Container detection stays free: it reads the list the
-	// poll already fetched, so the dashboard still knows a container exists.
-	if !traefikGateState.shouldAttempt() {
-		traefikContainerFound = container != nil
-		return
+func (t traefikIntegration) ID() string          { return "traefik" }
+func (t traefikIntegration) DisplayName() string { return "Traefik" }
+func (t traefikIntegration) Description() string {
+	return "Reads the Traefik API: routers, services, middlewares, entrypoints, and TLS certificates."
+}
+func (t traefikIntegration) MinPollInterval() time.Duration { return 0 }
+
+// Detect matches the Traefik image repository exactly.
+func (t traefikIntegration) Detect(c dockerContainer) bool {
+	return matchesImageRepository(c.Image, "traefik")
+}
+
+// Settings resolves the generic override layers, then folds in the legacy
+// Traefik names where the generic layers left a gap. Label still beats env,
+// as documented before the framework existed.
+func (t traefikIntegration) Settings(inspect *dockerInspectResponse, cfg *overrideConfig) integrationSettings {
+	var labels map[string]string
+	if inspect != nil {
+		labels = inspect.Config.Labels
 	}
+	s := resolveIntegrationSettings(t.ID(), cfg, labels)
 
-	if container == nil {
-		// Nothing to reach yet, so no attempt is spent: a Traefik that starts
-		// after dumbdock still gets its three attempts.
-		traefikContainerFound = false
-		traefikAPIURL = ""
-		traefikData = nil
-		traefikDataErr = ""
-		traefikLastErrSig = ""
-		traefikLastReachable = false
-		return
-	}
-
-	// Inspect the container.
-	inspect, err := inspectTraefikContainer(dockerClient, container.ID)
-	if err != nil {
-		reason := fmt.Sprintf("inspection failed: %v", err)
-		traefikContainerFound = true
-		traefikAPIURL = ""
-		traefikData = nil
-		traefikDataErr = reason
-		traefikLastErrSig = ""
-		traefikLastReachable = false
-		if traefikGateState.passed {
-			log.Printf("traefik: inspect %s (%s): %v", containerName(*container), container.ID[:12], err)
-		} else {
-			traefikRecordFailureLocked(reason)
+	if s.URL == "" {
+		if v, ok := labels["dumbdock.traefik.api"]; ok && strings.TrimSpace(v) != "" {
+			s.URL = strings.TrimSpace(v)
+			s.Sources["url"] = sourceLabel
+			s.Forced = true
+		} else if v := strings.TrimSpace(os.Getenv("TRAEFIK_API_URL")); v != "" {
+			s.URL = v
+			s.Sources["url"] = sourceEnv
+			s.Forced = true
 		}
-		return
 	}
-
-	// Resolve API URL.
-	apiURL, err := resolveTraefikAPIURL(inspect)
-	if err != nil {
-		reason := fmt.Sprintf("resolve API URL: %v", err)
-		traefikContainerFound = true
-		traefikAPIURL = ""
-		traefikData = nil
-		traefikDataErr = reason
-		traefikLastErrSig = ""
-		traefikLastReachable = false
-		if traefikGateState.passed {
-			log.Printf("traefik: resolve URL for %s: %v", containerName(*container), err)
-		} else {
-			traefikRecordFailureLocked(reason)
+	if s.Token == "" {
+		// Config beats env, as the documented precedence says; the legacy names
+		// are folded into the matching layer.
+		if cfg != nil && cfg.TraefikAPIToken != "" {
+			s.Token = cfg.TraefikAPIToken
+			s.Sources["token"] = sourceConfig
+		} else if v := strings.TrimSpace(os.Getenv("TRAEFIK_API_TOKEN")); v != "" {
+			s.Token = v
+			s.Sources["token"] = sourceEnv
 		}
-		return
 	}
-	traefikAPIURL = apiURL
+	if s.Username == "" {
+		if v := os.Getenv("TRAEFIK_API_USER"); v != "" {
+			s.Username = v
+			s.Sources["username"] = sourceEnv
+		}
+	}
+	if s.Password == "" {
+		if v := os.Getenv("TRAEFIK_API_PASS"); v != "" {
+			s.Password = v
+			s.Sources["password"] = sourceEnv
+		}
+	}
+	return s
+}
 
-	// Determine auth.
-	authHeader := getTraefikAuthHeader(cfg)
+// Collect resolves the endpoint, fetches every endpoint, runs the bounded
+// candidate probe when nothing answered, and records log-dedup state. The
+// framework owns detection, inspection, and the gate's fields.
+func (t traefikIntegration) Collect(rt integrationRuntime, target integrationTarget) integrationState {
+	st := target.Base
+	gate := rt.gate
+	if gate == nil {
+		gate = &integrationGate{id: t.ID(), displayName: t.DisplayName()}
+	}
 
-	// Fetch dashboard data.
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	apiURL := target.Settings.URL
+	urlSource := target.Settings.source("url")
+	if apiURL == "" {
+		resolved, err := resolveTraefikAPIURL(target.Inspect)
+		if err != nil {
+			reason := fmt.Sprintf("resolve API URL: %v", err)
+			st.Error = reason
+			if !gate.passed {
+				gate.recordFailure(reason)
+			} else {
+				log.Printf("traefik: resolve URL for %s: %v", st.ContainerName, err)
+			}
+			return st
+		}
+		apiURL = resolved
+		urlSource = sourceAuto
+	}
+	st.URL = apiURL
+	st.URLSource = urlSource
+
+	authHeader := integrationAuthHeader(target.Settings)
+	st.AuthConfigured = authHeader != ""
+
+	httpClient := rt.client
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
 	data := fetchTraefikDashboard(httpClient, apiURL, authHeader)
 
 	// If every endpoint failed, the primary (container-IP) URL is likely
 	// wrong: probe fallback candidates (published ports, alternate API port)
 	// and adopt the first reachable one before reporting unreachable.
 	if allEndpointFetchesFailed(data) {
-		for _, candidate := range traefikCandidateURLs(inspect, apiURL) {
+		for _, candidate := range traefikCandidateURLs(target.Inspect, apiURL) {
 			if candidate == apiURL {
 				continue
 			}
@@ -927,36 +837,32 @@ func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg
 		}
 	}
 
-	traefikAPIURL = apiURL
-	traefikContainerFound = true
-	traefikData = data
+	st.URL = apiURL
+	st.VendorData = data
 
-	// Determine whether the API is entirely unreachable and build a stable
-	// error signature for log deduplication. The version state is folded into
-	// the signature so an unsupported version is logged once per change.
 	errSig, firstErr := traefikErrorSignature(data)
 	allFailed := allEndpointFetchesFailed(data)
-
-	// A detected, unsupported major version is a warning (not unreachable).
 	versionUnsupported := data.Version != nil && !data.VersionSupported
 	combinedSig := traefikLogSignature(data, allFailed)
 
 	if allFailed {
-		traefikDataErr = fmt.Sprintf("API unreachable at %s: %s", apiURL, firstErr)
+		st.Error = fmt.Sprintf("API unreachable at %s: %s", apiURL, firstErr)
 	} else {
-		traefikDataErr = ""
+		st.Error = ""
 	}
 
-	gateWasPassed := traefikGateState.passed
-
+	traefikLogMu.Lock()
+	gateWasPassed := gate.passed
+	lastErrSig := traefikLastErrSig
+	lastReachable := traefikLastReachable
 	// Boot gate: while it is still armed, a failed fetch spends one attempt and
 	// logs exactly one line. The per-endpoint lines below stay for the
 	// post-boot path, where a recovery is still worth reporting.
 	if allFailed && !gateWasPassed {
-		traefikRecordFailureLocked(fmt.Sprintf("API unreachable at %s: %s", apiURL, firstErr))
-	} else if combinedSig != traefikLastErrSig {
+		gate.recordFailure(fmt.Sprintf("API unreachable at %s: %s", apiURL, firstErr))
+	} else if combinedSig != lastErrSig {
 		if errSig == "" {
-			if traefikLastErrSig != "" {
+			if lastErrSig != "" {
 				log.Printf("traefik: API recovered at %s", apiURL)
 			}
 		} else {
@@ -977,26 +883,75 @@ func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg
 				data.Version.Version, traefikSupportedMajorVersion, apiURL)
 		}
 	}
+	traefikLastErrSig = combinedSig
 
 	// The first fetch that answered at least one endpoint disarms the boot gate
 	// permanently.
 	if !allFailed {
-		traefikGateState.pass()
+		gate.pass()
 	}
 
 	// Log a success line only when the API becomes reachable (first success or
 	// recovery), never on every poll and never when all endpoints failed.
-	if !allFailed && !traefikLastReachable {
-		log.Printf("traefik: detected %s at %s (version: %v)",
-			containerName(*container), apiURL,
-			func() string {
-				if data.Version != nil {
-					return data.Version.Version
-				}
-				return "unknown"
-			}())
+	if !allFailed && !lastReachable {
+		version := "unknown"
+		if data.Version != nil {
+			version = data.Version.Version
+		}
+		log.Printf("traefik: detected %s at %s (version: %s)", st.ContainerName, apiURL, version)
+	}
+	traefikLastReachable = !allFailed
+	traefikLogMu.Unlock()
+
+	if versionUnsupported {
+		st.Warnings = append(st.Warnings, fmt.Sprintf("unsupported Traefik version %q (major %d); dumbdock supports major version %d",
+			data.Version.Version, data.MajorVersion, traefikSupportedMajorVersion))
+	}
+	for _, name := range data.NotConfigured {
+		st.Warnings = append(st.Warnings, fmt.Sprintf("%s endpoint not configured", name))
 	}
 
-	traefikLastErrSig = combinedSig
-	traefikLastReachable = !allFailed
+	if data.Overview != nil {
+		st.Stats = []integrationStat{
+			{Label: "HTTP routers", Value: strconv.Itoa(data.Overview.HTTP.Routers.Int())},
+			{Label: "HTTP services", Value: strconv.Itoa(data.Overview.HTTP.Services.Int())},
+			{Label: "Middlewares", Value: strconv.Itoa(data.Overview.HTTP.Middlewares.Int())},
+			{Label: "TCP routers", Value: strconv.Itoa(data.Overview.TCP.Routers.Int())},
+			{Label: "TCP services", Value: strconv.Itoa(data.Overview.TCP.Services.Int())},
+			{Label: "Entrypoints", Value: strconv.Itoa(len(data.Entrypoints))},
+		}
+	}
+	if data.Version != nil {
+		st.Sections = append(st.Sections, integrationSection{
+			Title:   "Version",
+			Columns: []string{"Field", "Value"},
+			Rows: [][]string{
+				{"Version", data.Version.Version},
+				{"Codename", data.Version.Codename},
+				{"Go", data.Version.Goversion},
+				{"Started", data.Version.StartDate},
+			},
+		})
+	}
+	return st
+}
+
+// Issues reports the Traefik findings from the published state.
+func (t traefikIntegration) Issues(st integrationState) ([]hostIssue, []string, bool) {
+	return collectTraefikIssues(snapshotFromIntegrationState(st))
+}
+
+// ---------------------------------------------------------------------------
+// Refresh entry point
+// ---------------------------------------------------------------------------
+
+// refreshTraefik is the Traefik-shaped entry point used by the tests. In
+// production refreshIntegrations runs the whole registry.
+func refreshTraefik(dockerClient *http.Client, containers []dockerContainer, cfg *overrideConfig) {
+	refreshIntegrations(dockerClient, containers, cfg)
+}
+
+// registerTraefik wires the integration into the registry at init time.
+func init() {
+	registerIntegration(traefikIntegrationInstance())
 }

@@ -7,9 +7,7 @@ Changes are generated from `git log` by `npm run gen:docs`; this page is not
 edited by hand.
 
 <!-- BEGIN GENERATED: changelog -->
-- feat: deploy docs site to Pages and add the publishable gate (c3504b0)
-- docs: generate changelog and README index, slim README to a doorway (63299eb)
-- docs: migrate reference, commands and security into the docs site (666a63d)
+- Release 0.1.0 (cbee239)
 - Release 0.0.6 (4c1d641)
 - Release 0.0.5 (8e0d53b)
 - Release 0.0.4 (95f94b5)

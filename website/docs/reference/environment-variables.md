@@ -34,6 +34,11 @@ description: Every environment variable dumbdock reads, with its default and wha
 | `TRAEFIK_API_TOKEN` | *(empty)* | Bearer token for the Traefik API; also `traefikAPIToken` in the config file |
 | `TRAEFIK_API_USER` | *(empty)* | Username for Traefik Basic auth |
 | `TRAEFIK_API_PASS` | *(empty)* | Password for Traefik Basic auth |
+| `DUMBDOCK_INTEGRATION_<ID>_ENABLED` | *(unset)* | Turn an integration on or off even when its container is detected (`traefik`, `watchtower`, `prunemate`) |
+| `DUMBDOCK_INTEGRATION_<ID>_CONTAINER` | *(unset)* | Pin one container by name and treat it as this integration, even when its image does not match |
+| `DUMBDOCK_INTEGRATION_<ID>_URL` | *(unset)* | Poll this API endpoint instead of auto-detecting one; `http`/`https` only, link-local addresses refused |
+| `DUMBDOCK_INTEGRATION_<ID>_TOKEN` | *(unset)* | Bearer token for the integration API; sent as a header and never logged |
+| `DUMBDOCK_INTEGRATION_<ID>_USER` / `_PASS` | *(unset)* | Basic-auth credentials for the integration API |
 
 ## Related
 
@@ -41,3 +46,5 @@ description: Every environment variable dumbdock reads, with its default and wha
 - [Startup logging](./startup-logging.md) — the redacted summary these settings
   produce.
 - [Storage tab](../guides/storage.md) — the roots and freshness window.
+- [Integrations](../guides/integrations.md) — the override fields and their
+  precedence.
