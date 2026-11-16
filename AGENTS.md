@@ -224,18 +224,19 @@ Implemented 2026-09-23 (`traefik.go`, `traefik_test.go`; see README "Traefik Das
   `traefikLogSignature` (version marker + error signature), and must never hard-block the
   dashboard or be reported as `API unreachable`. `traefikSupportedMajorVersion` is the single
   source of the supported major (3); bump it only with a deliberate compatibility decision.
-* **Boot attempt gate.** Traefik availability is bounded by `traefikAttemptLimit` (3) in
-  `traefik.go`. `traefikGate` counts one attempt per poll for the three availability failures —
-  container inspect error, `resolveTraefikAPIURL` error, and `allEndpointFetchesFailed` after the
-  bounded candidate probe — and `traefikGate.pass()` permanently disarms it the first time any
-  endpoint answers, so a post-boot outage keeps the normal recovery path. The third failure sets
-  `disabled`, disables all inspect/resolve/probe/fetch work for the life of the process, and logs
+* **Boot attempt gate.** Traefik availability is bounded by `integrationAttemptLimit` (3) in
+  `integrations.go`; `traefikAttemptLimit` is kept as its Traefik alias. `traefikGate` (a type
+  alias for the shared `integrationGate`) counts one attempt per poll for the three availability
+  failures — container inspect error, `resolveTraefikAPIURL` error, and `allEndpointFetchesFailed`
+  after the bounded candidate probe — and `traefikGate.pass()` permanently disarms it the first
+  time any endpoint answers, so a post-boot outage keeps the normal recovery path. The third failure
+  sets `disabled`, disables all inspect/resolve/probe/fetch work for the life of the process, and logs
   exactly one `traefik: unable to access Traefik API after 3 attempts — disabled until dumbdock
   restarts: <reason>` line; later polls update only `traefikContainerFound` from the already-fetched
   container list and log nothing. A poll with no Traefik container spends no attempt, and the gate
   is process state — only a restart re-arms it. Do not add a manual retry, a config key, or an env
   var for the budget. Every availability failure path must route through the gate; the
-  three-attempt rule lives only in `traefikAttemptLimit`.
+  three-attempt rule lives only in `integrationAttemptLimit`.
 * **Log only on state change.** Endpoint errors and the unreachable warning are logged once per
   error-signature change (`traefikErrorSignature`, deterministic across map order), with a single
   `traefik: API recovered at <url>` on transition back to healthy. Do not log a success
@@ -249,7 +250,74 @@ Implemented 2026-09-23 (`traefik.go`, `traefik_test.go`; see README "Traefik Das
 * **Frontend contract.** `index.html` treats `endpointErrors` covering all 9 endpoints with no data
   as the strong "API is not accessible" state and shows the URL + error text; partial errors list
   `key: message` pairs. All interpolated values stay `escapeHtml`-escaped (H-02).
-* No new settings: `startupConfig` / `logStartupConfig` / `validateConfig` are unchanged.
+* Traefik itself adds no settings. The integration settings that do exist (override chain, per-id
+  startup echo) belong to the framework; see "Integrations" below.
+
+## Integrations
+
+Implemented 2026-11-14 (`integrations.go`, `traefik.go`, `watchtower.go`, `prunemate.go`, `main.go`,
+`startup.go`, `index.html`; see README "Integrations"):
+
+* **The registry is the extension point.** An integration is one file implementing the
+  `integration` interface (`ID`, `DisplayName`, `Description`, `Detect`, `Settings`, `Collect`,
+  `Issues`, `MinPollInterval`) plus one `init()` that calls `registerIntegration`. Duplicate ids
+  panic at init. `integrations.go` owns everything generic — the interface, the registry, image
+  matching, override resolution, the per-integration gate, and the snapshot store — and a vendor
+  file owns only its own detection, settings, fetch, and findings. Adding an integration is a new
+  file, a registry line, tests, and a README row.
+* **Resolve image IDs before detection.** Docker reports a bare `sha256:` image
+  ID for a container created from a digest or an image ID, and a dangling image has no `RepoTags`
+  at all (its tag moved to a newer pull). `resolveImageReferences` runs once per poll in
+  `main.go` and resolves either case — image tags first, then the reference recorded in the
+  container's own `Config.Image` — caching per container+image so the extra inspect runs once.
+  Without it, exact matching cannot see the repository and a real Traefik stays undetected; this
+  was found in live verification, not by unit tests. Never match detection on the raw ID.
+* **Detection is an exact repository match, never a substring.** `matchesImageRepository` compares
+  the repository path (registry and tag stripped) and accepts the bare official name and
+  `library/<name>`. This is why `thomseddon/traefik-forward-auth`, `traefik-certs-dumper`, and
+  `mywatchtower` are never adopted. Do not reintroduce `strings.Contains(image, …)` for detection.
+* **Overrides come before auto-detection, with one implementation.** Precedence is config
+  (`integrations.<id>`), then container label `dumbdock.integration.<id>.<field>`, then
+  `DUMBDOCK_INTEGRATION_<ID>_<FIELD>`; per-field sources are recorded and only layer names are ever
+  exposed. `enabled: false` hides an integration completely (no poll, no findings); `container:
+  <name>` pins a container and forces detection even when its image does not match; `url` polls an
+  endpoint with no container. Traefik's legacy names (`dumbdock.traefik.api`, `TRAEFIK_API_*`,
+  `traefikAPIToken`) are folded into the matching layer so the documented label-beats-env order is
+  preserved. Never add a second precedence implementation in a vendor file.
+* **One gate per integration, one budget constant.** `integrationGate` is the only gate
+  implementation, `integrationAttemptLimit` is the only source of three, and efforts are
+  independent: a disabled Traefik never disables Watchtower. A poll with no detected container
+  spends no attempt. The framework writes the attempt and disable log lines with the integration
+  id and display name; Traefik's text is unchanged. Do not add a manual retry or a configurable
+  budget.
+* **Snapshots are immutable and handlers are cache reads.** `integrationStore` publishes a state
+  per integration under one mutex; `all()` returns copies in registry order. `GET /api/integrations`
+  and `GET /api/integrations/{id}` never call Docker or a vendor API — polling stays in the existing
+  10-second refresh (`refreshIntegrations`). `VendorData` is the vendor's typed payload for its own
+  handler and issue collector and is deliberately `json:"-"`.
+* **Read-only and bounded.** Every vendor call is a `GET` with an 8–10 second timeout and an
+  `io.LimitReader` body cap. No `POST /v1/update`, no PruneMate `run-now`, no `docker exec`. Tokens
+  and passwords travel in headers only (never a query string), and are never logged, serialised, or
+  written into an issue detail — `watchtowerConfig.Token` is `json:"-"` for this reason.
+* **URL overrides are validated.** `validateIntegrationURL` accepts only `http`/`https`, refuses
+  userinfo in the URL, and refuses link-local hosts (`169.254.0.0/16`, `fe80::/10`) so a container
+  label cannot point the poll at a metadata endpoint.
+* **Issue categories are fixed.** Newer integrations use `integration-api` (unreachable,
+  unauthorized, or gate-disabled) and `integration-status` (a vendor finding). Traefik keeps its
+  four categories and every existing acknowledgement ID. IDs come from `newIssueID` and never
+  contain a container name. A disabled gate emits exactly one stable row and reports
+  `complete = true`, matching the Traefik exception.
+* **Settings must reach the startup echo.** A new setting belongs in `startupConfig`,
+  `validateConfig` (advisory only: unknown integration id, invalid `url`, invalid boolean), and
+  `logStartupConfig` (one `integrations:` line plus one line per integration; secrets through
+  `redactSecret`). A `container` pin is verified at poll time, not at startup, because no container
+  list exists there.
+* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, **Integrations**, Issues,
+  Storage, Icons, Help; `TAB_IDS` includes `integrations`. `loadIntegrations()` renders only while
+  the tab is visible and never fetches before `checkAuth()` resolves. `renderIntegrations` is pure
+  and every interpolated value goes through `escapeHtml` (H-02). The tab adds no badge; integration
+  findings already flow into the Issues badge. `scripts/test-integrations-ui.js` is the committed
+  harness and must keep passing.
 
 ## Issues Tab
 
@@ -295,7 +363,7 @@ see README "Issues Tab"):
   body at 1 MiB, sends no credentials, and keeps the last successful version after a failure.
   An unavailable comparison is `coverage`, never a finding. The UI and README must keep the
   distro/package caveat.
-* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Issues, Storage, Icons, Help.
+* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Integrations, Issues, Storage, Icons, Help.
   `TAB_IDS` includes `issues`; `loadIssues()` refreshes the badge on every authenticated poll
   and renders the page only when it is visible. The Group/Compose/Dependency toggle is shown
   only on the Dashboard (`setActiveTab`), and its saved mode must survive tab switches. Every
@@ -344,7 +412,7 @@ see README "Storage Tab" and "Backup Reference Job"):
   and `logStartupConfig`. `DUMBDOCK_BACKUP_TOKEN` is a secret: redact it via `redactSecret` and
   report presence only. Invalid raw durations/paths are reported from the environment even when
   the resolved value falls back to a default.
-* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Issues, **Storage**, Icons,
+* **Frontend contract.** Nav order is Dashboard, Networking, Traefik, Integrations, Issues, **Storage**, Icons,
   Help; `TAB_IDS` includes `storage`. `loadStorage()` renders only while the tab is visible and
   never fetches before `checkAuth()` resolves. The Storage copy button has its own
   `#copy-storage-json-btn`; `#copy-json-btn` and the group toggle stay Dashboard-only. Every
@@ -385,7 +453,9 @@ Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
 * Add future guides by appending a `.traefik-section` block inside `#page-help` and an entry in the
   guide table of contents (`.help-toc`). Reuse the existing `traefik-*`/`help-*` classes.
 * Help content is authored as static HTML only — never interpolate user/container data into it
-  (no XSS surface, per H-02).
+  (no XSS surface, per H-02). The current guides are "Configure Traefik API Access", "Enable the
+  Watchtower HTTP API", and "Override integration detection"; keep them static and keep their
+  `.help-toc` entries in sync.
 
 ## Tab Persistence
 

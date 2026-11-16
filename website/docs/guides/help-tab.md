@@ -1,11 +1,22 @@
 ---
 title: Help tab
-description: The always-visible Help tab and its static Traefik API guide, including how to add a future guide.
+description: The always-visible Help tab and its static guides — Traefik API access, the Watchtower HTTP API, and integration overrides — including how to add a future guide.
 ---
 
 The **Help** tab is always visible in the navigation bar, immediately after
 **Icons**. It contains static getting-started guides served as plain HTML — there
 is no data fetch and no background refresh, so the page renders instantly.
+
+## Guides
+
+The tab currently carries three static guides:
+
+- **Configure Traefik API access** — the two ways to enable the API and how to
+  verify it.
+- **Enable the Watchtower HTTP API** — the metrics flag, the token, and what the
+  card can and cannot show.
+- **Override integration detection** — the config, label, and environment layers
+  for forcing, pinning, hiding, or re-pointing an integration.
 
 ## Configure Traefik API access
 

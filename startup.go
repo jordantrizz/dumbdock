@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -85,6 +86,50 @@ func validateConfig(cfg *overrideConfig, loadErr error, authMode string) []confi
 	}
 
 	warnings = append(warnings, validateStorageConfig(resolveStorageConfig(cfg))...)
+
+	// Integration settings: an unknown id is a typo the operator wants to hear
+	// about, and an override endpoint must be one dumbdock may call.
+	if cfg != nil {
+		ids := make([]string, 0, len(cfg.Integrations))
+		for id := range cfg.Integrations {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			if _, ok := integrationByID(id); !ok {
+				warnings = append(warnings, configWarning{
+					Field:   "integrations." + id,
+					Message: fmt.Sprintf("unknown integration %q (known: %s)", id, listOrNone(integrationIDs())),
+				})
+				continue
+			}
+			if msg := validateIntegrationURL(cfg.Integrations[id].URL); msg != nil {
+				warnings = append(warnings, configWarning{
+					Field:   "integrations." + id + ".url",
+					Message: msg.Error(),
+				})
+			}
+		}
+	}
+	for _, id := range integrationIDs() {
+		prefix := "DUMBDOCK_INTEGRATION_" + strings.ToUpper(id) + "_"
+		if raw, ok := integrationEnv(id, "ENABLED"); ok {
+			if _, valid := parseBoolSetting(raw); !valid {
+				warnings = append(warnings, configWarning{
+					Field:   prefix + "ENABLED",
+					Message: fmt.Sprintf("invalid boolean %q; expected true or false", raw),
+				})
+			}
+		}
+		if raw, ok := integrationEnv(id, "URL"); ok {
+			if msg := validateIntegrationURL(raw); msg != nil {
+				warnings = append(warnings, configWarning{
+					Field:   prefix + "URL",
+					Message: msg.Error(),
+				})
+			}
+		}
+	}
 
 	for _, d := range []struct {
 		name string
@@ -195,6 +240,20 @@ type startupConfig struct {
 	BackupMaxAge       time.Duration
 	BackupScanInterval time.Duration
 	BackupToken        string
+	// IntegrationIDs and Integrations describe the registry for the echo.
+	IntegrationIDs []string
+	Integrations   []startupIntegration
+}
+
+// startupIntegration is one integration's effective settings. Token and
+// Password are stored raw and redacted by logStartupConfig.
+type startupIntegration struct {
+	ID       string
+	Enabled  bool
+	Mode     string
+	URL      string
+	Token    string
+	Password string
 }
 
 // logStartupConfig logs a structured summary of the effective configuration.
@@ -228,4 +287,9 @@ func logStartupConfig(s startupConfig) {
 	log.Printf("  backup max age: %s", s.BackupMaxAge)
 	log.Printf("  storage scan interval: %s", s.BackupScanInterval)
 	log.Printf("  backup report token: %s", redactSecret(s.BackupToken))
+	log.Printf("  integrations: %s", listOrNone(s.IntegrationIDs))
+	for _, i := range s.Integrations {
+		log.Printf("  integration %s: %s (url %s, token %s, password %s)",
+			i.ID, i.Mode, valueOrNone(i.URL), redactSecret(i.Token), redactSecret(i.Password))
+	}
 }

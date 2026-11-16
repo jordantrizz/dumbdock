@@ -22,6 +22,8 @@ every poll after authentication.
 | Docker Engine | `warning` | The daemon is older than the latest stable Moby release (advisory) |
 | Storage paths | `warning` / `error` | Compose file outside the root, data beside the compose file, data in a Docker volume (warning); database data in the container layer (error) |
 | Database backups | `warning` / `error` | Newest verified backup older than policy (warning); no backup although required (error) |
+| Integration API | `error` | A Watchtower or PruneMate API is unreachable, unauthorized, or disabled after three failed attempts |
+| Integration status | `warning` | A vendor-reported problem: failed Watchtower updates, or a PruneMate that has never pruned or has gone stale |
 
 ## When the Traefik API is disabled
 
@@ -102,4 +104,6 @@ every 10 seconds, and the page re-renders only while it is the visible tab. The
 - [Storage tab](./storage.md) — the storage and backup findings in detail.
 - [Image update checks](./image-update-checks.md) — how the update badge is
   decided.
-- [Traefik dashboard](./traefik.md) — the API the findings come from.
+- [Traefik dashboard](./traefik.md) — the API the Traefik findings come from.
+- [Integrations](./integrations.md) — the two integration categories and their
+  three-attempt gate.

@@ -35,11 +35,11 @@ var appVersion = strings.TrimSpace(versionFileContent)
 var buildNumber = "0"
 
 type cardResponse struct {
-	Cards      []containerCard           `json:"cards"`
-	Unlabeled  []containerCard           `json:"unlabeled"`
-	Groups     []string                  `json:"groups"`
+	Cards      []containerCard            `json:"cards"`
+	Unlabeled  []containerCard            `json:"unlabeled"`
+	Groups     []string                   `json:"groups"`
 	Grouped    map[string][]containerCard `json:"grouped"`
-	HasTraefik bool                      `json:"hasTraefik"`
+	HasTraefik bool                       `json:"hasTraefik"`
 
 	// Compose project grouping (alternative view)
 	ComposeGrouped  map[string][]containerCard `json:"composeGrouped,omitempty"`
@@ -288,15 +288,30 @@ func main() {
 		dockerReleases.startRefresh()
 		latest, lastChecked, releaseErr := dockerReleases.status()
 
-		traefik := getTraefikState()
-
 		containerIssues, containerWarnings, containersComplete := collectContainerIssues(allCards, unhealthy, healthErr, denylist)
-		traefikIssues, traefikWarnings, traefikComplete := collectTraefikIssues(traefik)
 		versionIssues, versionCoverage := collectDockerVersionIssue(daemon, daemonErr, latest, lastChecked, releaseErr)
 
-		found := make([]hostIssue, 0, len(containerIssues)+len(traefikIssues)+len(versionIssues))
+		// Integration findings come from the published snapshots, so each
+		// vendor stays responsible for its own rows and coverage.
+		var integrationIssues []hostIssue
+		var integrationWarnings []string
+		integrationsComplete := true
+		for _, state := range integrationStoreState.all() {
+			it, ok := integrationByID(state.ID)
+			if !ok {
+				continue
+			}
+			rows, warnings, complete := it.Issues(state)
+			integrationIssues = append(integrationIssues, rows...)
+			integrationWarnings = append(integrationWarnings, warnings...)
+			if !complete {
+				integrationsComplete = false
+			}
+		}
+
+		found := make([]hostIssue, 0, len(containerIssues)+len(integrationIssues)+len(versionIssues))
 		found = append(found, containerIssues...)
-		found = append(found, traefikIssues...)
+		found = append(found, integrationIssues...)
 		found = append(found, versionIssues...)
 
 		// Storage findings are produced by the collector that runs just before
@@ -304,9 +319,9 @@ func main() {
 		storageIssues, storageWarnings, storageComplete, storageEvaluated := storageStore.findings()
 		found = append(found, storageIssues...)
 
-		warnings := make([]string, 0, len(containerWarnings)+len(traefikWarnings)+len(storageWarnings))
+		warnings := make([]string, 0, len(containerWarnings)+len(integrationWarnings)+len(storageWarnings))
 		warnings = append(warnings, containerWarnings...)
-		warnings = append(warnings, traefikWarnings...)
+		warnings = append(warnings, integrationWarnings...)
 		warnings = append(warnings, storageWarnings...)
 
 		// When no evidence provider is configured the backup findings are not
@@ -317,7 +332,7 @@ func main() {
 		}
 
 		coverage := issueCoverage{
-			CollectionComplete: containersComplete && traefikComplete && backupCovered,
+			CollectionComplete: containersComplete && integrationsComplete && backupCovered,
 			DockerVersion:      versionCoverage,
 			Warnings:           warnings,
 		}
@@ -332,6 +347,11 @@ func main() {
 			log.Printf("error fetching containers: %v", err)
 			return
 		}
+
+		// Docker reports an image ID for a container created from a digest or an
+		// image ID; resolve it to a repository tag so detection, icons, and the
+		// plugin labels all see a usable reference. Cached per image.
+		containers = resolveImageReferences(client, containers)
 
 		cards = nil
 		unlabeled = nil
@@ -475,8 +495,8 @@ func main() {
 			unlabeled = stillUnlabeled
 		}
 
-		// Traefik container detection and status fetch.
-		refreshTraefik(client, containers, cfg)
+		// Integration detection and status fetch (Traefik, Watchtower, …).
+		refreshIntegrations(client, containers, cfg)
 
 		for _, cards := range grouped {
 			sort.Slice(cards, func(i, j int) bool {
@@ -605,7 +625,7 @@ func main() {
 			Unlabeled:  unlabeled,
 			Groups:     groups,
 			Grouped:    grouped,
-			HasTraefik: traefikContainerFound,
+			HasTraefik: getTraefikState().Found,
 
 			ComposeGrouped:  composeGrouped,
 			ComposeProjects: composeProjects,
@@ -633,6 +653,11 @@ func main() {
 	// bearer token so a host backup script does not need a browser session.
 	mux.HandleFunc("GET /api/storage", storageStore.getHandler)
 	mux.HandleFunc("POST /api/backups/report", reportEndpoint.ServeHTTP)
+
+	// Integration registry. Both are cache reads of the poll's snapshots, and
+	// both sit behind the normal auth wrapper.
+	mux.HandleFunc("GET /api/integrations", integrationsHandler)
+	mux.HandleFunc("GET /api/integrations/{id}", integrationByIDHandler)
 
 	mux.HandleFunc("GET /api/traefik", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -747,6 +772,29 @@ func main() {
 	if err != nil {
 		configStatus = "invalid: " + err.Error()
 	}
+	// Effective integration settings for the startup echo. Settings resolve the
+	// same override chain the poll uses, with no container labels available
+	// yet, so the echo reports config/env intent and presence only.
+	startupIntegrations := make([]startupIntegration, 0, len(integrationRegistry))
+	for _, it := range integrationRegistry {
+		settings := it.Settings(nil, cfg)
+		mode := "auto"
+		switch {
+		case !settings.Enabled:
+			mode = "disabled"
+		case settings.URL != "":
+			mode = "forced"
+		}
+		startupIntegrations = append(startupIntegrations, startupIntegration{
+			ID:       it.ID(),
+			Enabled:  settings.Enabled,
+			Mode:     mode,
+			URL:      settings.URL,
+			Token:    settings.Token,
+			Password: settings.Password,
+		})
+	}
+
 	logStartupConfig(startupConfig{
 		ConfigPath:         configPath(),
 		ConfigStatus:       configStatus,
@@ -778,6 +826,8 @@ func main() {
 		BackupMaxAge:       storageCfg.DefaultMaxAge,
 		BackupScanInterval: storageCfg.ScanInterval,
 		BackupToken:        os.Getenv("DUMBDOCK_BACKUP_TOKEN"),
+		IntegrationIDs:     integrationIDs(),
+		Integrations:       startupIntegrations,
 	})
 
 	log.Fatal(http.ListenAndServe(listenAddr, handler))
@@ -800,9 +850,9 @@ func basicAuth(next http.Handler, password string) http.Handler {
 // isDumbdockImage reports whether the given Docker image reference or
 // container labels correspond to a known dumbdock container.
 // It checks:
-//   1. The image path against known dumbdock image patterns.
-//   2. The compose project name (com.docker.compose.project) for "dumbdock".
-//   3. The compose service name (com.docker.compose.service) for "dumbdock".
+//  1. The image path against known dumbdock image patterns.
+//  2. The compose project name (com.docker.compose.project) for "dumbdock".
+//  3. The compose service name (com.docker.compose.service) for "dumbdock".
 func isDumbdockImage(image string, labels map[string]string) bool {
 	// Step 1: Check the image path against known patterns.
 	path := imagePath(image)

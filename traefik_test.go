@@ -309,17 +309,20 @@ func TestTraefikStateFeedsIssues(t *testing.T) {
 	resetTraefikState()
 	defer resetTraefikState()
 
-	traefikMu.Lock()
-	traefikContainerFound = true
-	traefikAPIURL = "http://traefik:8080"
-	traefikData = &traefikDashboardData{
-		Version:          &traefikVersion{Version: "v3.7.13"},
-		VersionSupported: true,
-		MajorVersion:     3,
-		HTTPRouters:      []traefikRouter{{Name: "off", Status: "disabled"}},
-	}
-	traefikDataErr = ""
-	traefikMu.Unlock()
+	integrationStoreState.apply(integrationState{
+		ID:           "traefik",
+		DisplayName:  "Traefik",
+		Detected:     true,
+		Enabled:      true,
+		URL:          "http://traefik:8080",
+		AttemptLimit: integrationAttemptLimit,
+		VendorData: &traefikDashboardData{
+			Version:          &traefikVersion{Version: "v3.7.13"},
+			VersionSupported: true,
+			MajorVersion:     3,
+			HTTPRouters:      []traefikRouter{{Name: "off", Status: "disabled"}},
+		},
+	})
 
 	snap := getTraefikState()
 	issues, _, complete := collectTraefikIssues(snap)
@@ -568,5 +571,111 @@ func TestRefreshTraefikSuccessDisarmsGate(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "traefik: inspect") {
 		t.Fatalf("post-boot inspect failures must keep their own log line:\n%s", logs.String())
+	}
+}
+
+// TestTraefikDetectionIsExact pins the detection fix: only the Traefik image
+// repository is adopted, never a lookalike such as traefik-forward-auth.
+func TestTraefikDetectionIsExact(t *testing.T) {
+	it := traefikIntegrationInstance()
+	for _, image := range []string{"traefik:v3", "library/traefik:latest", "docker.io/library/traefik:v3.1"} {
+		if !it.Detect(dockerContainer{Image: image, State: "running"}) {
+			t.Errorf("Detect(%q) = false, want true", image)
+		}
+	}
+	for _, image := range []string{"thomseddon/traefik-forward-auth:latest", "traefik-certs-dumper:latest", "traefik-forward-auth", "my-traefik-proxy"} {
+		if it.Detect(dockerContainer{Image: image, State: "running"}) {
+			t.Errorf("Detect(%q) = true, want false", image)
+		}
+	}
+
+	containers := []dockerContainer{
+		{ID: "aaaaaaaaaaaaaaaa", Names: []string{"/traefik-forward-auth"}, Image: "thomseddon/traefik-forward-auth:latest", State: "running"},
+		{ID: "bbbbbbbbbbbbbbbb", Names: []string{"/traefik"}, Image: "traefik:v3", State: "running"},
+	}
+	got := findTraefikContainer(containers)
+	if got == nil || containerName(*got) != "traefik" {
+		t.Fatalf("findTraefikContainer picked %+v, want the real traefik container", got)
+	}
+
+	// A pinned container is adopted even when its image does not match.
+	custom := []dockerContainer{
+		{ID: "cccccccccccccccc", Names: []string{"/edge-proxy"}, Image: "registry.example.com/team/edge-proxy:1", State: "running"},
+	}
+	pinned := it.Settings(nil, &overrideConfig{Integrations: map[string]integrationConfig{
+		"traefik": {Container: "edge-proxy"},
+	}})
+	if pinned.Container != "edge-proxy" {
+		t.Fatalf("config pin not applied: %+v", pinned)
+	}
+	if got := detectIntegrationContainer(it, custom, pinned); got == nil || got.ID != "cccccccccccccccc" {
+		t.Fatalf("a pinned container must be detected regardless of image, got %+v", got)
+	}
+	if got := detectIntegrationContainer(it, custom, integrationSettings{Enabled: true}); got != nil {
+		t.Fatalf("an unmatched image must not be auto-detected, got %+v", got)
+	}
+}
+
+// TestTraefikSettingsLegacyPrecedence keeps the pre-framework order: the
+// legacy label beats the legacy env var, and a generic config URL beats both.
+func TestTraefikSettingsLegacyPrecedence(t *testing.T) {
+	it := traefikIntegrationInstance()
+	t.Setenv("TRAEFIK_API_URL", "http://from-env:8080")
+
+	ins := &dockerInspectResponse{}
+	ins.Config.Labels = map[string]string{"dumbdock.traefik.api": "http://from-label:8080"}
+
+	s := it.Settings(ins, nil)
+	if s.URL != "http://from-label:8080" || s.source("url") != sourceLabel || !s.Forced {
+		t.Fatalf("legacy label must beat TRAEFIK_API_URL, got %q from %q", s.URL, s.source("url"))
+	}
+
+	ins.Config.Labels = map[string]string{}
+	s = it.Settings(ins, nil)
+	if s.URL != "http://from-env:8080" || s.source("url") != sourceEnv {
+		t.Fatalf("legacy env must supply the URL, got %q from %q", s.URL, s.source("url"))
+	}
+
+	cfg := &overrideConfig{Integrations: map[string]integrationConfig{"traefik": {URL: "http://from-config:8080"}}}
+	s = it.Settings(ins, cfg)
+	if s.URL != "http://from-config:8080" || s.source("url") != sourceConfig {
+		t.Fatalf("a generic config URL must beat the legacy names, got %q from %q", s.URL, s.source("url"))
+	}
+
+	t.Setenv("TRAEFIK_API_TOKEN", "legacy-token")
+	if got := integrationAuthHeader(it.Settings(ins, nil)); got != "Bearer legacy-token" {
+		t.Fatalf("legacy token must produce a bearer header, got %q", got)
+	}
+}
+
+// TestTraefikAPIPayloadShapeIsStable protects the existing /api/traefik
+// contract while the state moves behind the integration store.
+func TestTraefikAPIPayloadShapeIsStable(t *testing.T) {
+	resp := traefikAPIResponse(traefikSnapshot{})
+	want := []string{"found", "apiUrl", "data", "error", "disabled", "disabledReason", "attempts", "attemptLimit"}
+	if len(resp) != len(want) {
+		t.Fatalf("payload has %d keys, want %d: %v", len(resp), len(want), resp)
+	}
+	for _, k := range want {
+		if _, ok := resp[k]; !ok {
+			t.Errorf("payload is missing key %q", k)
+		}
+	}
+}
+
+// TestTraefikLegacyTokenPrecedence keeps config ahead of the legacy env name,
+// as the documented precedence says.
+func TestTraefikLegacyTokenPrecedence(t *testing.T) {
+	t.Setenv("TRAEFIK_API_TOKEN", "env-token")
+	cfg := &overrideConfig{TraefikAPIToken: "config-token"}
+	s := traefikIntegrationInstance().Settings(nil, cfg)
+	if s.Token != "config-token" || s.source("token") != sourceConfig {
+		t.Fatalf("token = %q from %q, want the config value", s.Token, s.source("token"))
+	}
+
+	t.Setenv("TRAEFIK_API_TOKEN", "")
+	s = traefikIntegrationInstance().Settings(nil, &overrideConfig{})
+	if s.Token != "" {
+		t.Fatalf("no token configured, got %q", s.Token)
 	}
 }

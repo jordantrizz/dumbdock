@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'guides/dependency-grouping',
         'guides/traefik',
+        'guides/integrations',
         'guides/issues',
         'guides/storage',
         'guides/backup-job',

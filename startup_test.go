@@ -54,6 +54,12 @@ func TestLogStartupConfig(t *testing.T) {
 		BackupMaxAge:       26 * time.Hour,
 		BackupScanInterval: 5 * time.Minute,
 		BackupToken:        "backup-secret-token",
+		IntegrationIDs:     []string{"traefik", "watchtower", "prunemate"},
+		Integrations: []startupIntegration{
+			{ID: "traefik", Enabled: true, Mode: "auto"},
+			{ID: "watchtower", Enabled: true, Mode: "forced", URL: "http://watchtower:8080", Token: "watchtower-secret-token"},
+			{ID: "prunemate", Enabled: false, Mode: "disabled", Password: "prunemate-secret-pass"},
+		},
 	})
 
 	out := buf.String()
@@ -72,6 +78,10 @@ func TestLogStartupConfig(t *testing.T) {
 		"backup max age: 26h0m0s",
 		"storage scan interval: 5m0s",
 		"backup report token: (set)",
+		"integrations: traefik, watchtower, prunemate",
+		"integration traefik: auto (url (not set), token (not set), password (not set))",
+		"integration watchtower: forced (url http://watchtower:8080, token (set), password (not set))",
+		"integration prunemate: disabled (url (not set), token (not set), password (set))",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -83,6 +93,8 @@ func TestLogStartupConfig(t *testing.T) {
 		"traefik-secret-token",
 		"traefik-secret-pass",
 		"backup-secret-token",
+		"watchtower-secret-token",
+		"prunemate-secret-pass",
 	} {
 		if strings.Contains(out, secret) {
 			t.Errorf("output leaked secret %q:\n%s", secret, out)

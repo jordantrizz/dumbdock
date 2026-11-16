@@ -405,32 +405,32 @@ func findIssue(issues []hostIssue, category issueCategory, key string) *hostIssu
 func TestCollectContainerIssues(t *testing.T) {
 	cards := []containerCard{
 		{
-			ContainerID:    "aaaaaaaaaaaa",
-			ContainerName:  "web",
-			Image:          "nginx:1",
-			UpdateAvailable: true,
+			ContainerID:      "aaaaaaaaaaaa",
+			ContainerName:    "web",
+			Image:            "nginx:1",
+			UpdateAvailable:  true,
 			HasPublicBinding: true,
 			PublicBindingIPs: []string{"0.0.0.0", "203.0.113.9"},
 		},
 		{
-			ContainerID:     "bbbbbbbbbbbb",
-			ContainerName:   "db",
-			Image:           "postgres:16",
+			ContainerID:       "bbbbbbbbbbbb",
+			ContainerName:     "db",
+			Image:             "postgres:16",
 			HasPrivateBinding: true,
 			PrivateBindingIPs: []string{"10.0.0.5"},
 		},
 		{
-			ContainerID:    "cccccccccccc",
-			ContainerName:  "local",
-			Image:          "redis:7",
+			ContainerID:     "cccccccccccc",
+			ContainerName:   "local",
+			Image:           "redis:7",
 			HasLocalBinding: true,
 			LocalBindingIPs: []string{"127.0.0.1"},
 		},
 		{
-			ContainerID:     "dddddddddddd",
-			ContainerName:   "hidden",
-			Image:           "secret:1",
-			UpdateAvailable: true,
+			ContainerID:      "dddddddddddd",
+			ContainerName:    "hidden",
+			Image:            "secret:1",
+			UpdateAvailable:  true,
 			HasPublicBinding: true,
 			PublicBindingIPs: []string{"0.0.0.0"},
 		},
@@ -583,7 +583,8 @@ func TestCollectTraefikIssuesDisabled(t *testing.T) {
 	}
 }
 
-func TestCollectTraefikIssuesPartialEndpointErrors(t *testing.T) {	data := &traefikDashboardData{
+func TestCollectTraefikIssuesPartialEndpointErrors(t *testing.T) {
+	data := &traefikDashboardData{
 		EndpointErrors: map[string]string{"tlsCerts": "timeout"},
 	}
 	issues, _, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data})
@@ -605,8 +606,8 @@ func TestCollectTraefikIssuesNotConfiguredIsNotAFinding(t *testing.T) {
 
 func TestCollectTraefikIssuesUnsupportedVersion(t *testing.T) {
 	data := &traefikDashboardData{
-		Version:        &traefikVersion{Version: "v2.11.0"},
-		MajorVersion:   2,
+		Version:          &traefikVersion{Version: "v2.11.0"},
+		MajorVersion:     2,
 		VersionSupported: false,
 	}
 	issues, _, complete := collectTraefikIssues(traefikSnapshot{Found: true, Data: data})
@@ -685,10 +686,10 @@ func TestCollectDockerVersionIssue(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name    string
-		daemon  string
-		latest  string
-		want    int
+		name   string
+		daemon string
+		latest string
+		want   int
 	}{
 		{name: "equal", daemon: "27.3.1", latest: "v27.3.1", want: 0},
 		{name: "newer", daemon: "27.4.0", latest: "v27.3.1", want: 0},
@@ -947,5 +948,50 @@ func TestIssueStoreStorageFindingLifecycle(t *testing.T) {
 	}
 	if got := store.snapshotIssues().Count; got != 1 {
 		t.Fatalf("Count after prune and recurrence = %d, want 1", got)
+	}
+}
+
+// TestIssueStoreAcknowledgesIntegrationCategories proves the two framework
+// categories behave like every other category: the acknowledgement is stored,
+// the row leaves the active list, and the category is discoverable for the
+// coverage rule.
+func TestIssueStoreAcknowledgesIntegrationCategories(t *testing.T) {
+	dir := t.TempDir()
+	store := newIssueStore(dir)
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+
+	apiRow := testIssue(categoryIntegrationAPI, "watchtower", "api", "Watchtower API is unreachable")
+	statusRow := testIssue(categoryIntegrationStatus, "prunemate", "stale", "PruneMate has not pruned recently")
+	if err := store.apply([]hostIssue{apiRow, statusRow}, completeCoverage(), now); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := store.snapshotIssues().Count; got != 2 {
+		t.Fatalf("count = %d, want 2", got)
+	}
+	for _, id := range []string{apiRow.ID, statusRow.ID} {
+		if err := store.acknowledge(id); err != nil {
+			t.Fatalf("acknowledge(%s): %v", id, err)
+		}
+	}
+	if got := store.snapshotIssues(); got.Count != 0 || len(got.Acknowledged) != 2 {
+		t.Fatalf("acknowledged snapshot = %+v", got)
+	}
+	if !store.hasAcknowledgedCategory(categoryIntegrationAPI) || !store.hasAcknowledgedCategory(categoryIntegrationStatus) {
+		t.Fatal("acknowledged integration categories must be discoverable")
+	}
+
+	// The acknowledgement survives a reload: the next collection pass over the
+	// same rows keeps them acknowledged instead of re-activating them.
+	reloaded := newIssueStore(dir)
+	reloaded.now = func() time.Time { return now }
+	if warnings := reloaded.load(); len(warnings) != 0 {
+		t.Fatalf("reload warnings = %+v", warnings)
+	}
+	if err := reloaded.apply([]hostIssue{apiRow, statusRow}, completeCoverage(), now); err != nil {
+		t.Fatalf("reloaded apply: %v", err)
+	}
+	if got := reloaded.snapshotIssues(); got.Count != 0 || len(got.Acknowledged) != 2 {
+		t.Fatalf("reloaded snapshot = count %d acknowledged %d, want 0/2", got.Count, len(got.Acknowledged))
 	}
 }

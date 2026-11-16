@@ -80,6 +80,24 @@ dumbdock also reads labels it does not own: `com.docker.compose.*` for project
 and dependency grouping, `traefik.enable` and
 `traefik.http.routers.<name>.rule` for the link badge and the extracted URL.
 
+## Integration labels
+
+Override how an integration is detected, without changing its image:
+
+| Label | Description |
+|-------|-------------|
+| `dumbdock.integration.<id>.enabled` | `false` hides the integration completely: no polling, no findings |
+| `dumbdock.integration.<id>.container` | Pin one container by name, even when its image does not match |
+| `dumbdock.integration.<id>.url` | Poll this API endpoint instead of auto-detecting one; `http`/`https` only |
+| `dumbdock.integration.<id>.token` | Bearer token for the API; sent as a header, never logged |
+| `dumbdock.integration.<id>.user` / `.pass` | Basic-auth credentials for the API |
+
+The id is `traefik`, `watchtower`, or `prunemate`. A config-file block beats a
+label, and a label beats an environment variable. See
+[Integrations](../guides/integrations.md) for examples, and the
+[config file](./config-file.md) and
+[environment variables](./environment-variables.md) for the other two layers.
+
 ## Related
 
 - [Config file](./config-file.md) — the same overrides without re-labelling.

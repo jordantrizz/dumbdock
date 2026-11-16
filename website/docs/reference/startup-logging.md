@@ -16,7 +16,7 @@ handled the same way — the server falls back to an empty config and keeps runn
 The `startup config:` block lists the version and build, config-file path and
 status, listen address, Docker socket, poll interval, auth mode, update-check
 settings, auto-detection settings, blacklists, icon sets, alert targets, state
-directory, storage roots, and Traefik API settings.
+directory, storage roots, Traefik API settings, and one line per integration.
 
 Secret-bearing values are never printed. They render as `(set)` / `(not set)`:
 
@@ -27,6 +27,7 @@ Secret-bearing values are never printed. They render as `(set)` / `(not set)`:
 | Traefik API token | `TRAEFIK_API_TOKEN` or `traefikAPIToken` |
 | Traefik API pass | `TRAEFIK_API_PASS` |
 | Backup report token | `DUMBDOCK_BACKUP_TOKEN` |
+| Integration token or password | the `integrations` block, a label, or `DUMBDOCK_INTEGRATION_<ID>_TOKEN` / `_PASS` |
 
 The one deliberate exception is the random password generated for the run when an
 auth mode is active and `DUMBDOCK_PASSWORD` is empty. It is logged once so the
@@ -57,10 +58,20 @@ startup config:
   traefik api token: (not set)
   traefik api user: (not set)
   traefik api pass: (not set)
+  integrations: prunemate, traefik, watchtower
+  integration prunemate: disabled (url (not set), token (not set), password (not set))
+  integration traefik: auto (url (not set), token (not set), password (not set))
+  integration watchtower: forced (url http://watchtower:8080, token (set), password (not set))
 ```
+
+Each integration line reports its mode — `auto`, `forced` when an override
+supplies the endpoint, or `disabled` — plus its endpoint and the *presence* of a
+token or password.
 
 ## Related
 
 - [Environment variables](./environment-variables.md) — every setting the block
   reports.
 - [Config file](./config-file.md) — the file whose load status is printed.
+- [Integrations](../guides/integrations.md) — what `auto`, `forced`, and
+  `disabled` mean.
