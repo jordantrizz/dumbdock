@@ -4,7 +4,6 @@ docker-compose.yml
 docker-compose.override.yml
 .env
 .env.bak
-/plans
 # control.sh runtime state (tunnel + published port), never committed.
 .port
 .tunnel-url
@@ -12,3 +11,4 @@ docker-compose.override.yml
 .tunnel.pid.log
 # Local agent run logs (container traceability), never committed.
 .opencode/
+/plans
