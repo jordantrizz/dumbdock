@@ -13,9 +13,10 @@ affects only the container grid.
 The dependency view reads the `com.docker.compose.depends_on` label that Docker
 Compose sets automatically — no `dumbdock.*` label is required.
 
-Containers are grouped under the container(s) they depend on, and the group
-heading is the dependency's display name (`dumbdock.name` when set, otherwise the
-container name). With this compose file:
+Containers are grouped under the container(s) they depend on, with the
+dependency itself heading its own group so each group reads as a stack,
+and the group heading is the dependency's display name (`dumbdock.name`
+when set, otherwise the container name). With this compose file:
 
 ```yaml
 services:
@@ -27,7 +28,10 @@ services:
       - db
 ```
 
-the **By Dependency** view shows `app` under a `db` heading.
+the **By Dependency** view shows `db` and `app` together under a `db`
+heading. When several services share a dependency, they all sit under
+the same heading — for example, `grogg-queue`, `grogg-scheduler`, and
+`nginx` grouped under `grogg-app` alongside `grogg-app` itself.
 
 ## Behaviour notes
 
@@ -36,8 +40,11 @@ the **By Dependency** view shows `app` under a `db` heading.
   which itself depends on `db`, is grouped under `api`, not `db`.
 - **Multiple dependencies** — a container that depends on several services
   appears in each of those dependency groups.
-- **No resolvable dependency** — containers with no `depends_on` label, or whose
-  dependency is not running, go under a `Standalone` group.
+- **No resolvable dependency** — containers with no `depends_on` label that
+  nothing depends on, or whose dependency is not running, go under a
+  `Standalone` group. A container that others depend on heads its own
+  group instead of sitting in `Standalone`, even when it declares no
+  dependencies of its own.
 - **Switching views** — the grouping mode is independent of the tab; leaving the
   Dashboard hides the toggle without changing the saved mode.
 
