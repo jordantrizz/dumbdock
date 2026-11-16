@@ -50,6 +50,107 @@ type cardResponse struct {
 	DependencyProjects []string                   `json:"dependencyGroups,omitempty"`
 }
 
+// buildDependencyGrouped groups containers under the container(s) they
+// depend on, using the com.docker.compose.depends_on label. The group key
+// is the dependency container's display name (Name if set, else
+// ContainerName), and the dependency container itself heads its own group
+// so every group reads as a stack instead of a lone dependent. Containers
+// with no resolvable dependency go under "Standalone".
+//
+// Dependencies are resolved within the same compose project: a depends_on
+// service name is only meaningful relative to the project that declared
+// it, so the lookup key is "<project>/<service>".
+func buildDependencyGrouped(allContainers []containerCard) (map[string][]containerCard, []string) {
+	dependencyGrouped := make(map[string][]containerCard)
+	serviceToCard := make(map[string]containerCard)
+	for _, card := range allContainers {
+		if card.ServiceName != "" {
+			serviceToCard[card.ComposeProject+"/"+card.ServiceName] = card
+		}
+	}
+	rootByGroup := make(map[string]containerCard)
+	for _, card := range allContainers {
+		if len(card.DependsOn) == 0 {
+			continue
+		}
+		for _, dep := range card.DependsOn {
+			depCard, ok := serviceToCard[card.ComposeProject+"/"+dep]
+			if !ok {
+				continue
+			}
+			key := depCard.Name
+			if key == "" {
+				key = depCard.ContainerName
+			}
+			if _, ok := rootByGroup[key]; !ok {
+				rootByGroup[key] = depCard
+			}
+			dependencyGrouped[key] = append(dependencyGrouped[key], card)
+		}
+	}
+	// A container the view depends on heads its group instead of sitting
+	// in Standalone; Standalone keeps only containers nothing resolves to.
+	headIDs := make(map[string]bool, len(rootByGroup))
+	for _, root := range rootByGroup {
+		headIDs[root.ContainerID] = true
+	}
+	for _, card := range allContainers {
+		if len(card.DependsOn) != 0 {
+			resolved := false
+			for _, dep := range card.DependsOn {
+				if _, ok := serviceToCard[card.ComposeProject+"/"+dep]; ok {
+					resolved = true
+					break
+				}
+			}
+			if resolved {
+				continue
+			}
+		}
+		if headIDs[card.ContainerID] {
+			continue
+		}
+		dependencyGrouped["Standalone"] = append(dependencyGrouped["Standalone"], card)
+	}
+	// Head each dependency group with the dependency itself. A root that
+	// also declares its own dependencies keeps its dependent seat as well,
+	// matching the multiple-membership rule for multi-dependency cards.
+	for key, root := range rootByGroup {
+		members := dependencyGrouped[key]
+		headed := false
+		for _, m := range members {
+			if m.ContainerID == root.ContainerID {
+				headed = true
+				break
+			}
+		}
+		if !headed {
+			dependencyGrouped[key] = append([]containerCard{root}, members...)
+		}
+	}
+	dependencyProjects := make([]string, 0, len(dependencyGrouped))
+	for g := range dependencyGrouped {
+		dependencyProjects = append(dependencyProjects, g)
+	}
+	sort.Strings(dependencyProjects)
+	// Sort dependents within each dependency group by name, keeping a
+	// heading root first.
+	for key, cards := range dependencyGrouped {
+		root, isStack := rootByGroup[key]
+		members := cards
+		if isStack && len(cards) > 0 && cards[0].ContainerID == root.ContainerID {
+			members = cards[1:]
+		}
+		sort.Slice(members, func(i, j int) bool {
+			return strings.ToLower(members[i].Name) < strings.ToLower(members[j].Name)
+		})
+		if isStack && len(cards) > 0 && cards[0].ContainerID == root.ContainerID {
+			dependencyGrouped[key] = append([]containerCard{root}, members...)
+		}
+	}
+	return dependencyGrouped, dependencyProjects
+}
+
 func main() {
 	socketPath := os.Getenv("DOCKER_SOCK")
 	if socketPath == "" {
@@ -415,55 +516,10 @@ func main() {
 			})
 		}
 
-		// Build dependency-grouped data (alternative grouping view). Containers
-		// are grouped under the container(s) they depend on, using the
-		// com.docker.compose.depends_on label. The group key is the dependency
-		// container's display name (Name if set, else ContainerName). Containers
-		// with no resolvable dependency go under "Standalone".
-		//
-		// Dependencies are resolved within the same compose project: a
-		// depends_on service name is only meaningful relative to the project
-		// that declared it, so the lookup key is "<project>/<service>".
-		dependencyGrouped = make(map[string][]containerCard)
-		serviceToCard := make(map[string]containerCard)
-		for _, card := range allContainers {
-			if card.ServiceName != "" {
-				serviceToCard[card.ComposeProject+"/"+card.ServiceName] = card
-			}
-		}
-		for _, card := range allContainers {
-			if len(card.DependsOn) == 0 {
-				dependencyGrouped["Standalone"] = append(dependencyGrouped["Standalone"], card)
-				continue
-			}
-			resolved := false
-			for _, dep := range card.DependsOn {
-				depCard, ok := serviceToCard[card.ComposeProject+"/"+dep]
-				if !ok {
-					continue
-				}
-				resolved = true
-				key := depCard.Name
-				if key == "" {
-					key = depCard.ContainerName
-				}
-				dependencyGrouped[key] = append(dependencyGrouped[key], card)
-			}
-			if !resolved {
-				dependencyGrouped["Standalone"] = append(dependencyGrouped["Standalone"], card)
-			}
-		}
-		dependencyProjects = make([]string, 0, len(dependencyGrouped))
-		for g := range dependencyGrouped {
-			dependencyProjects = append(dependencyProjects, g)
-		}
-		sort.Strings(dependencyProjects)
-		// Sort cards within each dependency group by name.
-		for _, cards := range dependencyGrouped {
-			sort.Slice(cards, func(i, j int) bool {
-				return strings.ToLower(cards[i].Name) < strings.ToLower(cards[j].Name)
-			})
-		}
+		// Build dependency-grouped data (alternative view). The builder
+		// heads each group with the dependency container itself so groups
+		// read as stacks; see buildDependencyGrouped.
+		dependencyGrouped, dependencyProjects = buildDependencyGrouped(allContainers)
 
 		// Overlay cached image-update results. Registry I/O happens in the
 		// checker's own goroutine; this only reads the cache.
