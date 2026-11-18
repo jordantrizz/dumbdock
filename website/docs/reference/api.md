@@ -104,7 +104,7 @@ or `auto`. `hidden` marks an integration switched off by an override.
 Credentials and vendor payloads are never serialised; `authConfigured` only
 reports that one is in use.
 
-## GET /api/integrations/{id}
+## `GET /api/integrations/{id}`
 
 One integration's state, or `404` with `{"error": "unknown integration: …"}` for
 an unregistered id.

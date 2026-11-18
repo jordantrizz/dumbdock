@@ -1,6 +1,6 @@
 ---
 title: Integrations
-description: The Integrations tab — how dumbdock detects Traefik, Watchtower, and PruneMate, and how to force, pin, hide, or point an integration at an API.
+description: The Integrations tab — how dumbdock detects Traefik, Watchtower, and PruneMate, how to force, pin, hide, or point an integration at an API, and how to fix an endpoint dumbdock cannot reach.
 ---
 
 The **Integrations** tab lists every container tool dumbdock can observe:
@@ -127,8 +127,147 @@ coverage, so acknowledgements in other categories keep pruning. A poll with no
 detected container spends no attempt, so a tool that starts after dumbdock still
 gets its full budget.
 
+## Troubleshooting
+
+### An endpoint that answers on the host but not in dumbdock
+
+Each Compose project gets its own bridge network, and Docker drops traffic between
+them. A Watchtower or PruneMate container in its own project is therefore
+unreachable from a dumbdock container in another one — even on the same host, and
+even when `curl` from the host shell returns data normally. The host has a leg on
+every bridge; a container only has its own. A host-side `curl` proves the tool is
+healthy, not that dumbdock can reach it.
+
+Without a `url` override, dumbdock builds the endpoint from the container itself:
+
+1. the container's IP on its **first Docker network**, sorted by network name, on
+   the vendor port (`8080` for Watchtower and PruneMate);
+2. if the container has no network IP at all, the first published port on
+   `127.0.0.1`.
+
+The first step never checks that dumbdock is on that network, and the second is
+only correct when dumbdock runs with `network_mode: host` — inside a container,
+`127.0.0.1` is dumbdock itself. The card shows the endpoint it resolved with the
+source `auto`, and the startup log echoes the same:
+
+```text
+integration prunemate: auto (url (not set), token (not set), password (not set))
+```
+
+### Reading the message
+
+| Message | Meaning | Fix |
+|---|---|---|
+| `context deadline exceeded (Client.Timeout exceeded while awaiting headers)` | No shared network: the packets are dropped and the 8 s timeout runs out | Join a shared network and set `url` |
+| `dial tcp: lookup <name> … no such host` | A container name was used without a shared network | Same as above |
+| `connection refused` | The address answers, but nothing listens on that port | Check the port, and that the tool binds `0.0.0.0` inside its container |
+| `returned status 401` or `403` | Reachable; credentials missing or wrong | Set `token`, or `username` and `password` |
+
+A timeout and a refusal are different faults. A refusal means the network is fine
+and the port or the binding is wrong; a timeout means the network is not fine.
+
+### Joining one network, and pinning the URL
+
+Both containers must be on the same user-defined network, and the endpoint should
+be set explicitly. Give dumbdock a shared network and the override — any network
+both projects join works, often the one your reverse proxy already uses:
+
+```yaml
+services:
+  dumbdock:
+    networks:
+      - proxy
+    environment:
+      - DUMBDOCK_INTEGRATION_PRUNEMATE_URL=http://prunemate:8080
+
+networks:
+  proxy:
+    external: true
+```
+
+Then attach the tool to that same network. Keeping its own project network is
+harmless once the override is set:
+
+```yaml
+services:
+  prunemate:
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    external: true
+```
+
+Docker's embedded DNS resolves `prunemate` by container name only on a shared
+network, which is why the name is used instead of an IP that changes on every
+recreate.
+
+**Set `url` even after joining.** The automatic endpoint still takes the first
+network name alphabetically, so a tool that keeps its own project network can
+still be addressed on the bridge dumbdock cannot use. Dropping the tool's own
+network is the alternative; an explicit `url` survives either layout.
+
+### The restart comes last
+
+The three-attempt gate is process state. After the third failed attempt the
+integration is disabled for the life of the process and no configuration change
+revives it — and a restart made before the network is fixed spends the budget
+again within about a minute (an 8 s timeout, then the 30 s minimum between polls).
+So, in this order:
+
+1. make the network change and recreate the tool;
+2. prove the name resolves **from inside dumbdock**;
+3. recreate dumbdock last.
+
+The runtime image is Alpine, so `wget` and `nc` are available in it:
+
+```bash
+docker exec dumbdock nc -z -w 3 prunemate 8080; echo "nc exit=$?"
+docker exec dumbdock wget -T 3 -qO- http://prunemate:8080/api/stats
+```
+
+Then ask dumbdock what it resolved instead of guessing (the port is your
+`DUMBDOCK_PORT`):
+
+```bash
+curl -s "http://127.0.0.1:8080/api/integrations/prunemate" \
+  | jq '{url, urlSource, disabled, error}'
+```
+
+A healthy card reports the endpoint with `urlSource` `config`, `label`, or `env`,
+`disabled` false, and no `error`. The finding row disappears on the first
+successful poll, and its acknowledgement is pruned with it because collection is
+complete again.
+
+### When only the host can reach the tool
+
+If the two projects must not share a network, publish the port on an address a
+container can route to and use the host-gateway alias. A `127.0.0.1` publish does
+not work: only the host's own loopback answers it.
+
+```yaml
+services:
+  dumbdock:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - DUMBDOCK_INTEGRATION_PRUNEMATE_URL=http://host.docker.internal:8080
+```
+
+The published form must be `8080:8080` or `<bridge gateway>:8080:8080`, not a
+`127.0.0.1` binding. This is the fallback route: it adds a host round-trip and
+depends on the published port, both of which the shared network avoids.
+
+Traefik resolves its own API URL and probes fallback candidates; see
+[Traefik dashboard](traefik.md#boot-attempt-gate) for that chain.
+
 ## Limits
 
+- A tool in another Compose project is unreachable until both containers share a
+  Docker network and `url` is set; auto-detection never crosses a bridge. See
+  [Troubleshooting](#troubleshooting).
 - Read-only: dumbdock never triggers an update, a prune, or any state change in
   the tools it reads.
 - Host paths are meaningless for a remote Docker daemon; the integration polling

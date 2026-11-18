@@ -7,6 +7,8 @@ Changes are generated from `git log` by `npm run gen:docs`; this page is not
 edited by hand.
 
 <!-- BEGIN GENERATED: changelog -->
+- Release 0.2.1 (5f6058b)
+- Release 0.2.0 (b6764a1)
 - Release 0.1.0 (cbee239)
 - Release 0.0.6 (4c1d641)
 - Release 0.0.5 (8e0d53b)

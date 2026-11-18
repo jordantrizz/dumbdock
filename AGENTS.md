@@ -276,6 +276,14 @@ Implemented 2026-11-14 (`integrations.go`, `traefik.go`, `watchtower.go`, `prune
   the repository path (registry and tag stripped) and accepts the bare official name and
   `library/<name>`. This is why `thomseddon/traefik-forward-auth`, `traefik-certs-dumper`, and
   `mywatchtower` are never adopted. Do not reintroduce `strings.Contains(image, …)` for detection.
+* **Auto-detection cannot cross a Docker network.** `containerAPIURL` uses the target container's
+  first network IP (network names sorted) on the vendor port, and falls back to the published port
+  on `127.0.0.1` — inside a container that is dumbdock itself. Watchtower and PruneMate try that
+  single endpoint and never probe alternatives (unlike Traefik's bounded candidate probe), so a tool
+  in another Compose project stays unreachable until both containers share a network **and** `url`
+  is set; the alphabetically first network may still be the one dumbdock cannot use. Do not add a
+  silent host-gateway guess — the operator chooses the endpoint. User-facing version:
+  `website/docs/guides/integrations.md` → "Troubleshooting".
 * **Overrides come before auto-detection, with one implementation.** Precedence is config
   (`integrations.<id>`), then container label `dumbdock.integration.<id>.<field>`, then
   `DUMBDOCK_INTEGRATION_<ID>_<FIELD>`; per-field sources are recorded and only layer names are ever
