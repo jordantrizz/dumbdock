@@ -258,6 +258,8 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .help-toc li{margin:0 0 0.3rem}
 .help-toc a{color:#58a6ff;text-decoration:none;font-size:0.9rem}
 .help-toc a:hover{text-decoration:underline}
+.help-toc-group{font-size:0.72rem;color:#6e7681;text-transform:uppercase;letter-spacing:0.05em;margin:1rem 0 0.4rem}
+.help-issue-meta{display:flex;align-items:center;gap:0.5rem;margin:0 0 0.85rem;color:#8b949e;font-size:0.8rem}
 .help-anchor{scroll-margin-top:1rem}
 
 /* ===== Issues Page ===== */
@@ -275,6 +277,16 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .issue-action{padding:0.28rem 0.65rem;border-radius:6px;border:1px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:0.78rem;white-space:nowrap;transition:all 0.15s}
 .issue-action:hover:not(:disabled){color:#f0f2f5;background:#21262d;border-color:#8b949e}
 .issue-action:disabled{opacity:0.5;cursor:default}
+.issue-info{display:inline-flex;align-items:center;justify-content:center;width:1.15rem;height:1.15rem;margin-left:0.4rem;padding:0;border:0;border-radius:50%;background:transparent;color:#58a6ff;font-size:0.85rem;line-height:1;cursor:help;vertical-align:middle}
+.issue-info:hover{background:#1f6feb;color:#fff}
+.issue-info:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
+.issue-info-popover{position:fixed;z-index:900;box-sizing:border-box;max-width:calc(100vw - 16px);padding:0.7rem 0.8rem;background:#161b22;border:1px solid #30363d;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,0.5);color:#e1e4e8;font-size:0.8rem;line-height:1.45}
+.issue-info-popover[hidden]{display:none}
+.issue-info-title{font-weight:600;color:#f0f2f5;margin:0 0 0.3rem}
+.issue-info-summary{margin:0 0 0.45rem;color:#8b949e}
+.issue-info-link{color:#58a6ff;text-decoration:none;font-size:0.78rem}
+.issue-info-link:hover{text-decoration:underline}
+.issue-info-link[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -355,12 +367,328 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
   <div id="help-app">
     <div class="traefik-section help-guide">
       <h2>Help</h2>
-      <p class="help-intro">Guides for getting the most out of dumbdock. Pick a topic below.</p>
+      <p class="help-intro">How the Issues page works, what every issue type means, and guides for getting the most out of dumbdock. Pick a topic below.</p>
+      <ul class="help-toc">
+        <li><a href="#help-overview">How the Issues page works</a></li>
+      </ul>
+      <p class="help-toc-group">Issue reference</p>
+      <ul class="help-toc">
+        <li><a href="#help-issue-container-health">Container health</a></li>
+        <li><a href="#help-issue-traefik-api">Traefik API</a></li>
+        <li><a href="#help-issue-traefik-backend">Traefik backends</a></li>
+        <li><a href="#help-issue-traefik-entity">Traefik entities</a></li>
+        <li><a href="#help-issue-container-backup">Database backups</a></li>
+        <li><a href="#help-issue-container-storage">Storage paths</a></li>
+        <li><a href="#help-issue-container-exposure">Exposed ports</a></li>
+        <li><a href="#help-issue-container-update">Image updates</a></li>
+        <li><a href="#help-issue-docker-version">Docker Engine</a></li>
+        <li><a href="#help-issue-traefik-version">Traefik version</a></li>
+        <li><a href="#help-issue-integration-api">Integration API</a></li>
+        <li><a href="#help-issue-integration-status">Integration status</a></li>
+      </ul>
+      <p class="help-toc-group">Guides</p>
       <ul class="help-toc">
         <li><a href="#help-traefik-api">Configure Traefik API Access</a></li>
         <li><a href="#help-watchtower-api">Enable the Watchtower HTTP API</a></li>
         <li><a href="#help-integration-overrides">Override integration detection</a></li>
       </ul>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-overview">
+      <h2>How the Issues page works</h2>
+      <p class="help-intro">The <strong>Issues</strong> page lists only problems dumbdock can prove from the Docker daemon and the Traefik API. It never guesses from log text, and an empty page means nothing was found in the sources it could check — not that nothing is wrong.</p>
+
+      <h3>Severity</h3>
+      <ul class="help-list">
+        <li><span class="issue-sev issue-sev-error">error</span> — a broken or unsafe state that needs attention, such as an unhealthy container, an unreachable proxy, a DOWN backend, or database data that will be lost when its container is recreated.</li>
+        <li><span class="issue-sev issue-sev-warning">warning</span> — a deviation worth knowing about that does not by itself break anything, such as a publicly bound port or an available image update.</li>
+      </ul>
+
+      <h3>Grouping, counts, and refresh</h3>
+      <p class="help-step">One row is one finding. Rows are grouped by issue type, and the number beside the <strong>Issues</strong> navigation button is the count of active, unacknowledged rows. The page is a cache read: dumbdock collects findings in its own background poll every 10 seconds after you sign in, so opening the tab does not itself query Docker or Traefik.</p>
+
+      <h3>Explaining a row</h3>
+      <p class="help-step">The small info control beside each row's title explains that issue type. Hover it, focus it with the keyboard, or tap it to open a short description and a <strong>Read the full explanation</strong> link; click it to pin the popover, press <code>Escape</code> to close it, and click anywhere else to dismiss it. The popover describes the type, not the specific container in the row — this page is the full reference for every type.</p>
+
+      <h3>Acknowledging</h3>
+      <p class="help-step">Acknowledge moves a finding to the <strong>Acknowledged</strong> table without hiding that it exists: it leaves the badge count and the active list, and it survives a restart. dumbdock keeps an acknowledgement until a complete collection confirms the finding is gone; if a source could not be checked, the acknowledgement is retained rather than silently cleared. Unacknowledge puts it back.</p>
+
+      <h3>Coverage</h3>
+      <p class="help-step">When a source cannot be checked — the Docker health query failed, a Traefik endpoint errored, or the Traefik API is disabled for this run — the page says <strong>Collection: partial</strong> and lists the reason. A partial collection never counts as healthy, and acknowledgements are not pruned while it lasts. A disabled Traefik gate is shown as exactly one <strong>Traefik API unavailable (disabled until restart)</strong> row, because restarting dumbdock is the only way to retry it.</p>
+
+      <h3>Every issue type</h3>
+      <div class="traefik-table-wrap"><table class="traefik-table">
+        <thead><tr><th>Issue type</th><th>Severity</th><th>In one line</th><th>Details</th></tr></thead>
+        <tbody>
+          <tr><td>Container health</td><td><span class="issue-sev issue-sev-error">error</span></td><td>Docker's healthcheck reports unhealthy.</td><td><a href="#help-issue-container-health">Read</a></td></tr>
+          <tr><td>Traefik API</td><td><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span></td><td>Every endpoint failed, one endpoint errored, or the API is disabled.</td><td><a href="#help-issue-traefik-api">Read</a></td></tr>
+          <tr><td>Traefik backends</td><td><span class="issue-sev issue-sev-error">error</span></td><td>A load-balancer server reports DOWN.</td><td><a href="#help-issue-traefik-backend">Read</a></td></tr>
+          <tr><td>Traefik entities</td><td><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span></td><td>A router, service, or middleware is disabled, warning, or error.</td><td><a href="#help-issue-traefik-entity">Read</a></td></tr>
+          <tr><td>Database backups</td><td><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span></td><td>No backup evidence, or the newest dump is too old.</td><td><a href="#help-issue-container-backup">Read</a></td></tr>
+          <tr><td>Storage paths</td><td><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span></td><td>Compose or data files sit outside the expected layout.</td><td><a href="#help-issue-container-storage">Read</a></td></tr>
+          <tr><td>Exposed ports</td><td><span class="issue-sev issue-sev-warning">warning</span></td><td>A port is bound to every interface or a public IP.</td><td><a href="#help-issue-container-exposure">Read</a></td></tr>
+          <tr><td>Image updates</td><td><span class="issue-sev issue-sev-warning">warning</span></td><td>A newer digest exists for the running image.</td><td><a href="#help-issue-container-update">Read</a></td></tr>
+          <tr><td>Docker Engine</td><td><span class="issue-sev issue-sev-warning">warning</span></td><td>The daemon is older than the latest Moby release (advisory).</td><td><a href="#help-issue-docker-version">Read</a></td></tr>
+          <tr><td>Traefik version</td><td><span class="issue-sev issue-sev-warning">warning</span></td><td>The detected Traefik major version is not 3.</td><td><a href="#help-issue-traefik-version">Read</a></td></tr>
+          <tr><td>Integration API</td><td><span class="issue-sev issue-sev-error">error</span></td><td>An integration's API is unreachable, unauthorized, or disabled.</td><td><a href="#help-issue-integration-api">Read</a></td></tr>
+          <tr><td>Integration status</td><td><span class="issue-sev issue-sev-warning">warning</span></td><td>The integration reports failed updates or a stale prune.</td><td><a href="#help-issue-integration-status">Read</a></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-container-health">
+      <h2>Container health</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> Docker's own healthcheck says the container is failing.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">Docker reports <code>health=unhealthy</code> for a container that is running but not passing the healthcheck its image or compose file defines. The process may still be up; what failed is the test that proves it works.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock reads the daemon's health filter — it never infers health from the status text. Only containers the dashboard currently shows are considered, and containers you denylisted are skipped. A container that is stopped, paused, or restarting is not a health finding.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li><code>docker inspect --format '{{json .State.Health}}' &lt;container&gt;</code> shows the failing test and the last few probe outputs.</li>
+        <li><code>docker logs --tail 100 &lt;container&gt;</code> usually shows what the probe is hitting.</li>
+        <li>Fix the service, or fix the check when the check is wrong (an HTTP path that needs auth, a port that moved, a start period that is too short).</li>
+        <li>Recreating the container with a corrected healthcheck is what clears the row; dumbdock does not restart or repair anything.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">A container with no healthcheck, or one whose health is <code>starting</code>, is not a finding. Raw logs are never read into an issue row.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-traefik-api">
+      <h2>Traefik API</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span> dumbdock cannot read Traefik's read-only API.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">An <span class="issue-sev issue-sev-error">error</span> means every Traefik endpoint failed, or the boot attempt gate gave up and disabled API work for this run. A <span class="issue-sev issue-sev-warning">warning</span> means one endpoint returned an error while the rest answered, so part of the Traefik page is stale.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">Traefik does not expose its API by default. dumbdock resolves the API URL from the <code>dumbdock.traefik.api</code> label, then <code>TRAEFIK_API_URL</code>, then the container's network IP, then a published port. After three failed attempts at startup it disables API collection until dumbdock restarts, and reports that as one terminal row even if the Traefik container has since disappeared.</p>
+
+      <h3>How to resolve it</h3>
+      <p class="help-step">Enable the API (<code>--api.insecure=true</code> on a private network, or the <code>api@internal</code> router), point dumbdock at it explicitly, and add credentials when it is protected. The step-by-step guide, including the verification <code>curl</code>, is under <a href="#help-traefik-api">Configure Traefik API Access</a>. If the row says <strong>disabled until restart</strong>, restart dumbdock after fixing the API — the gate re-arms on every start.</p>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">No Traefik container at all is not a finding. A 404 from an endpoint dumbdock knows is optional (for example TLS certificates when none are configured) is <em>not configured</em>, not an error, and partial endpoint warnings keep the rows other endpoints produced.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-traefik-backend">
+      <h2>Traefik backends</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> A server behind a Traefik service is DOWN.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">A Traefik HTTP or TCP service lists a load-balancer server whose status is <code>DOWN</code>. Requests routed to that service can fail or be sent to a healthy sibling with a delay.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock reads each service's per-server status from the API. The row names the service and the exact server URL, so a stale target — an old container IP, a port nothing listens on, a container that was replaced — is identifiable without opening Traefik's own dashboard.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Confirm the target container is running and on the same Docker network as Traefik.</li>
+        <li>Check the port the service points at, for example <code>traefik.http.services.&lt;name&gt;.loadbalancer.server.port</code>.</li>
+        <li>Look for a stale file-provider entry that still names a removed container.</li>
+        <li>The <strong>Traefik</strong> tab lists the service and its servers; it clears once Traefik reports the server <code>UP</code>.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">Only an explicit <code>DOWN</code> is a finding. A server reporting <code>UP</code>, or a service with no server status, produces no row.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-traefik-entity">
+      <h2>Traefik entities</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span> A router, service, or middleware is not healthy.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">Traefik labels an HTTP or TCP router, an HTTP or TCP service, or a middleware as <code>error</code> (reported here as an error) or as <code>disabled</code> or <code>warning</code> (reported as a warning). The row names the kind and the entity.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock copies the status Traefik itself reports. It never invents an entity that Traefik does not list, so this is always Traefik's own verdict on a configuration it loaded.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Open the <strong>Traefik</strong> tab and find the entity by name; the status column matches this row.</li>
+        <li>For <code>error</code>, check the router rule, the referenced service or middleware name, and the provider it comes from (Docker labels or a file provider).</li>
+        <li>For <code>disabled</code>, confirm whether that is deliberate — for example a router switched off with <code>traefik.enable=false</code>.</li>
+        <li>Traefik's own log explains the specific parse or reference failure.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">Entities that are enabled or carry an unknown status are not findings, and dumbdock never fabricates a missing entity.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-container-backup">
+      <h2>Database backups</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span> A detected database has no recent backup evidence.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">An <span class="issue-sev issue-sev-error">error</span> means the dataset is required to have a backup, an evidence provider is configured, and nothing was found. A <span class="issue-sev issue-sev-warning">warning</span> means a dump exists but is older than the dataset's policy.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">The Storage scanner detects a database engine (MariaDB, MySQL, PostgreSQL, or SQLite) in a compose-managed service, reads its policy, and checks the dataset's <code>backups/</code> directory for a dump artifact. Evidence is freshness metadata: the newest file name and timestamp, not the dump's contents.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Run the reference job (<code>scripts/backup-databases.sh</code>) or your own dump, writing the artifact into the dataset's <code>backups/</code> directory under the data root.</li>
+        <li>Push freshness metadata from outside the container with <code>POST /api/backups/report</code> and <code>DUMBDOCK_BACKUP_TOKEN</code> when a job runs elsewhere.</li>
+        <li>Adjust the policy per service if the current one is wrong for that data.</li>
+        <li>The <strong>Storage</strong> tab shows the dataset, the last artifact, and the policy it was judged against.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step"><code>dumbdock.backup.disabled=true</code> makes the dataset exempt — visible, never a finding. A dataset whose evidence provider is not configured is <em>unverified</em> and counts as coverage, not a finding. A failed push report is not evidence of a backup, and dumbdock does not verify a dump's contents (use <code>pg_restore --list</code>, <code>gzip -t</code>, or <code>sqlite3 "pragma integrity_check;"</code> for that).</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-container-storage">
+      <h2>Storage paths</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> <span class="issue-sev issue-sev-warning">warning</span> Files or data sit outside the storage layout.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">A <span class="issue-sev issue-sev-error">error</span> is database data stored in the container's own filesystem, which is lost when the container is recreated. A <span class="issue-sev issue-sev-warning">warning</span> covers a compose file outside the container root, application or database data stored beside the compose file, data in a named or anonymous Docker volume, and data outside the data root.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock compares each compose-managed container's mounts and detected database directories against the documented layout: compose files under <code>/opt/containers/&lt;project&gt;/</code> and persistent data under <code>/srv/containers/&lt;project&gt;/&lt;service&gt;/</code>. Roots come from <code>DUMBDOCK_CONTAINER_ROOT</code> and <code>DUMBDOCK_DATA_ROOT</code>, then the config file, then those defaults.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Move the compose file into the container root and recreate the project from there.</li>
+        <li>Bind-mount the service's data from its <code>/srv/containers/&lt;project&gt;/&lt;service&gt;/</code> directory instead of using a Docker volume.</li>
+        <li>Move a database directory out of the application checkout into that data directory, then restart the service.</li>
+        <li>A bind mount of an application checkout can be waived with <code>dumbdock.storage.ignore</code> when it is genuinely source, not data.</li>
+        <li>The <strong>Storage</strong> tab shows each mount, its classification, and the expected path.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">Only compose-managed containers are evaluated; a standalone <code>docker run</code> container is out of scope. A configured root that is not mounted into the dumbdock container is reported as <em>not-mounted</em> coverage, never as a finding, and a dataset row suppresses the duplicate volume-mount row for the same destination.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-container-exposure">
+      <h2>Exposed ports</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-warning">warning</span> A published port is reachable from more than localhost.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">A published port is bound to every interface (<code>0.0.0.0</code> or <code>::</code>) or to a public IP, so anything that can reach the host can attempt a connection. The row lists the addresses it found.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock classifies every published port binding it sees. This is a warning, not an error: publishing a web port is often exactly what you meant, so the row is a reminder to confirm it.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Bind to localhost when only the host needs it: <code>-p 127.0.0.1:8080:8080</code>, or the same address in a compose <code>ports</code> entry.</li>
+        <li>Bind to a private address when the service is for an internal network only.</li>
+        <li>Front a port that must be public with a reverse proxy that terminates TLS and enforces auth.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">Bindings on <code>127.0.0.1</code>, <code>::1</code>, and private addresses are not findings. An <code>EXPOSE</code> line that publishes nothing is not a finding either.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-container-update">
+      <h2>Image updates</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-warning">warning</span> A newer image digest exists for the running tag.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">The registry reports a newer digest for the image tag the container is running. The container keeps running the image it started with until it is pulled and recreated.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock's background checker asks Docker Hub and GHCR anonymously for the tag's current digest, caches the answer for six hours, and compares it with the running container. It sends no credentials and never pulls an image.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Read the release notes for the image, then pull and recreate the service when it suits you: <code>docker compose pull &lt;service&gt; &amp;&amp; docker compose up -d &lt;service&gt;</code>.</li>
+        <li>Acknowledge the row if you are deliberately holding the current version.</li>
+        <li>Turn the check off with <code>DUMBDOCK_UPDATE_CHECK=false</code> when outbound registry access is unwanted.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">An update state of <code>unknown</code> or <code>error</code> — an unsupported registry, a local-only image, or a failed lookup — is not a finding. Denylisted containers are skipped, and dumbdock never changes an image or restarts a container.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-docker-version">
+      <h2>Docker Engine</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-warning">warning</span> The daemon is older than the latest stable Moby release.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">The Docker daemon reports a version older than the newest stable <code>moby/moby</code> GitHub release. This is advisory: distribution packages deliberately lag upstream, and a host that is working does not need an immediate upgrade.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock caches the latest release for 24 hours (retrying after 15 minutes on failure), compares it with the daemon's version, and keeps the last good comparison when a later fetch fails. It never upgrades anything.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Confirm the version with <code>docker version</code>.</li>
+        <li>Upgrade through your distribution (for example <code>apt</code> or <code>dnf</code>) or Docker's own packages, planning for a daemon restart.</li>
+        <li>Check the release notes for breaking changes before a major jump.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">When the comparison is unavailable — the release feed failed or either version cannot be parsed — the page reports coverage instead of a row, because an unavailable check is not evidence of an old daemon.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-traefik-version">
+      <h2>Traefik version</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-warning">warning</span> The detected Traefik major version is not 3.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">dumbdock requires Traefik v3. A v2 (or unparseable) version means parts of the <strong>Traefik</strong> tab may be missing or rendered differently. The row is informational; it never blocks the rest of the dashboard.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock reads the major version from Traefik's <code>/api/version</code>. The Traefik tab shows the same condition as a banner, the server logs it once per state change, and this row makes it visible from the Issues page.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Upgrade Traefik to v3, following Traefik's migration notes for entrypoints, providers, and the API.</li>
+        <li>Reload the <strong>Traefik</strong> tab afterwards; the row clears on the next poll once v3 answers.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">A missing Traefik container, or a version that cannot be parsed, is reported as information rather than as a Traefik API failure. This row does not imply any entity or backend finding.</p>
+    </div>
+
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-integration-api">
+      <h2>Integration API</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-error">error</span> dumbdock cannot read an integration's own API.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">An integration that dumbdock detected answered nothing, rejected its credentials, or was disabled by its boot attempt gate. This is about the integration's API — Watchtower's HTTP API or PruneMate's status endpoint — not about Traefik, which keeps its own four categories.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">Each integration polls its API on the same 10-second cycle, read-only. After three failed attempts at startup, that integration's gate disables its work for the rest of the run and reports one stable row even if the container has since disappeared. Other integrations are unaffected: a disabled Watchtower never disables PruneMate.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>Confirm the endpoint is enabled. Watchtower serves it only with <code>--http-api-metrics</code>; see <a href="#help-watchtower-api">Enable the Watchtower HTTP API</a>.</li>
+        <li>Point dumbdock at it through the override layers — <code>integrations.&lt;id&gt;.url</code> in the config file, the <code>dumbdock.integration.&lt;id&gt;.url</code> container label, or <code>DUMBDOCK_INTEGRATION_&lt;ID&gt;_URL</code>; see <a href="#help-integration-overrides">Override integration detection</a>.</li>
+        <li>Send the token in the matching <code>token</code> field; it travels in a header only and is never logged.</li>
+        <li>If the row says <strong>disabled until restart</strong>, restart dumbdock after fixing the endpoint — the gate re-arms on every start.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">An integration that is not detected and not forced is not a finding. When Watchtower is running without the metrics endpoint, the page reports coverage instead of this error. dumbdock never calls an integration's mutating endpoints: no Watchtower update, no PruneMate run.</p>
+    </div>
+
+    <div class="traefik-section help-guide help-anchor" id="help-issue-integration-status">
+      <h2>Integration status</h2>
+      <p class="help-issue-meta"><span class="issue-sev issue-sev-warning">warning</span> The integration reports a problem with its own work.</p>
+
+      <h3>What it means</h3>
+      <p class="help-step">The integration is reachable but reports something wrong: Watchtower counted one or more failed container updates in its last scan, or PruneMate has never completed a prune, or its last completed prune is older than the stale threshold.</p>
+
+      <h3>Why it appears</h3>
+      <p class="help-step">dumbdock reads the vendor's own counters and timestamps and never infers a failure. The row names the integration, and the <strong>Integrations</strong> tab shows the same counts, the last run time, and the threshold it was judged against.</p>
+
+      <h3>How to resolve it</h3>
+      <ul class="help-list">
+        <li>For failed updates, read Watchtower's log for the container it could not update, then fix that image or its permissions.</li>
+        <li>For a prune that never ran or is stale, check PruneMate's schedule in its own UI and confirm the container has been running long enough to have completed one run.</li>
+        <li>Acknowledge the row while the cause is deliberate, such as a paused pruning schedule.</li>
+      </ul>
+
+      <h3>Exempt and out of scope</h3>
+      <p class="help-step">An integration with no API configured produces a coverage warning, not a finding, and nothing is inferred when a metric is absent. dumbdock never triggers an update or a prune to "fix" the row.</p>
     </div>
 
     <div class="traefik-section help-guide help-anchor" id="help-traefik-api">
@@ -519,6 +847,12 @@ curl -s -u user:pass http://<traefik-host>:8080/api/version</code>
       <p class="help-step">Traefik keeps its original names as aliases: <code>dumbdock.traefik.api</code>, <code>TRAEFIK_API_URL</code>, <code>TRAEFIK_API_TOKEN</code>, <code>TRAEFIK_API_USER</code>, and <code>TRAEFIK_API_PASS</code> still work.</p>
     </div>
   </div>
+</div>
+
+<div id="issue-info-popover" class="issue-info-popover" role="dialog" aria-modal="false" aria-labelledby="issue-info-title" tabindex="-1" hidden>
+  <div class="issue-info-title" id="issue-info-title"></div>
+  <p class="issue-info-summary" id="issue-info-summary"></p>
+  <a class="issue-info-link" id="issue-info-link" href="#help" hidden>Read the full explanation</a>
 </div>
 
 <div id="detail-backdrop" class="detail-backdrop"></div>
@@ -1280,9 +1614,10 @@ function tabFromHash(hash, doc) {
 function setActiveTab(tab) {
   if (TAB_IDS.indexOf(tab) === -1) tab = 'dashboard';
   currentTab = tab;
-  // Close any open card modal when switching tabs
+  // Close any open card modal or issue info popover when switching tabs
   var openCard = document.querySelector('.card .unlabeled-code.open');
   if (openCard) toggleCode(openCard.id);
+  if (typeof closeIssueInfo === 'function') closeIssueInfo(false);
 
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('[id^="page-"]').forEach(p => p.style.display = 'none');
@@ -1630,29 +1965,33 @@ function formatIssueTime(value) {
   return d.toLocaleString();
 }
 
-function issueCategoryLabel(category) {
-  var labels = {
-    'container-exposure': 'Exposed ports',
-    'container-update': 'Image updates',
-    'container-health': 'Container health',
-    'docker-version': 'Docker Engine',
-    'traefik-api': 'Traefik API',
-    'traefik-version': 'Traefik version',
-    'traefik-entity': 'Traefik entities',
-    'traefik-backend': 'Traefik backends',
-    'container-storage': 'Storage paths',
-    'container-backup': 'Database backups',
-    'integration-api': 'Integration API',
-    'integration-status': 'Integration status'
-  };
-  return labels[category] || String(category || 'other');
+// The issue category catalog arrives with every snapshot (data.categories): one
+// entry per issue type with its label, one-sentence summary, possible
+// severities, and Help anchor. It is the only source for labels and grouping
+// order; an older payload without it still renders with raw category keys.
+var issueCatalogMap = {};
+var issueCatalogOrder = [];
+
+function applyIssueCatalog(data) {
+  var map = {};
+  var order = [];
+  var entries = (data && data.categories) || [];
+  for (const entry of entries) {
+    if (!entry || !entry.category) continue;
+    map[entry.category] = entry;
+    order.push(entry.category);
+  }
+  issueCatalogMap = map;
+  issueCatalogOrder = order;
 }
 
-// Stable category order, then any unknown category in first-seen order.
-var ISSUE_CATEGORY_ORDER = ['container-health', 'traefik-api', 'traefik-backend', 'traefik-entity',
-  'container-backup', 'container-storage', 'container-exposure', 'container-update', 'docker-version',
-  'traefik-version', 'integration-api', 'integration-status'];
+function issueCategoryLabel(category) {
+  var info = issueCatalogMap[category];
+  if (info && info.label) return info.label;
+  return String(category || 'other');
+}
 
+// Stable catalog order, then any unknown category in first-seen order.
 function groupIssuesByCategory(items) {
   var groups = [];
   var index = {};
@@ -1665,10 +2004,10 @@ function groupIssuesByCategory(items) {
     groups[index[key]].items.push(item);
   }
   groups.sort(function(a, b) {
-    var ai = ISSUE_CATEGORY_ORDER.indexOf(a.category);
-    var bi = ISSUE_CATEGORY_ORDER.indexOf(b.category);
-    if (ai === -1) ai = ISSUE_CATEGORY_ORDER.length;
-    if (bi === -1) bi = ISSUE_CATEGORY_ORDER.length;
+    var ai = issueCatalogOrder.indexOf(a.category);
+    var bi = issueCatalogOrder.indexOf(b.category);
+    if (ai === -1) ai = issueCatalogOrder.length;
+    if (bi === -1) bi = issueCatalogOrder.length;
     return ai - bi;
   });
   return groups;
@@ -1684,13 +2023,18 @@ function renderIssueRows(items, acknowledged) {
     } else if (item.source) {
       object = escapeHtml(item.source);
     }
+    var category = String(item.category || '');
+    var label = issueCategoryLabel(category);
+    var info = '<button type="button" class="issue-info" data-issue-category="' + escapeHtml(category) +
+      '" aria-label="About ' + escapeHtml(label) + '" aria-expanded="false" aria-controls="issue-info-popover">' +
+      '<span aria-hidden="true">&#8505;</span></button>';
     var timeLabel = acknowledged ? formatIssueTime(item.acknowledgedAt) : formatIssueTime(item.lastObservedAt);
     var action = acknowledged
       ? '<button type="button" class="issue-action" onclick="setIssueAcknowledged(this, \'' + escapeHtml(item.id) + '\', false)">Unacknowledge</button>'
       : '<button type="button" class="issue-action" onclick="setIssueAcknowledged(this, \'' + escapeHtml(item.id) + '\', true)">Acknowledge</button>';
     html += '<tr>' +
       '<td><span class="issue-sev issue-sev-' + sev + '">' + sev + '</span></td>' +
-      '<td><div class="issue-title">' + escapeHtml(item.title) + '</div>' +
+      '<td><div class="issue-title">' + escapeHtml(item.title) + info + '</div>' +
         '<div class="issue-detail">' + escapeHtml(item.detail) + '</div></td>' +
       '<td class="issue-object">' + object + '</td>' +
       '<td class="issue-time">' + escapeHtml(timeLabel) + '</td>' +
@@ -1699,6 +2043,245 @@ function renderIssueRows(items, acknowledged) {
   }
   return html;
 }
+
+// ----- Issue category info popover -----
+//
+// One popover node serves every row. The rows are re-rendered on every poll, so
+// the listeners are delegated on the stable #issues-app container and the
+// popover is closed before a render replaces its trigger.
+var issueInfoState = { trigger: null, pinned: false, hideTimer: null, suppressFocus: null };
+var issueInfoHideDelay = 180;
+
+function issueInfoPopover() {
+  return document.getElementById('issue-info-popover');
+}
+
+function positionIssueInfo(trigger) {
+  var pop = issueInfoPopover();
+  if (!pop || !trigger) return;
+  var margin = 8;
+  var width = Math.min(320, window.innerWidth - margin * 2);
+  pop.style.width = Math.round(width) + 'px';
+  var rect = trigger.getBoundingClientRect();
+  var left = rect.left + rect.width / 2 - width / 2;
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+  var height = pop.offsetHeight || 120;
+  var top = rect.bottom + 6;
+  if (top + height > window.innerHeight - margin) top = rect.top - height - 6;
+  if (top < margin) top = margin;
+  pop.style.left = Math.round(left) + 'px';
+  pop.style.top = Math.round(top) + 'px';
+}
+
+function openIssueInfo(trigger, pinned) {
+  var pop = issueInfoPopover();
+  if (!issueInfoState || !pop || !trigger) return;
+  var category = trigger.getAttribute('data-issue-category') || '';
+  var info = issueCatalogMap[category] || null;
+  var title = document.getElementById('issue-info-title');
+  var summary = document.getElementById('issue-info-summary');
+  var link = document.getElementById('issue-info-link');
+  if (title) title.textContent = info && info.label ? info.label : (category || 'Other');
+  if (summary) summary.textContent = info && info.summary ? info.summary : 'No description available for this issue type yet.';
+
+  var anchor = info && typeof info.helpAnchor === 'string' ? info.helpAnchor : '';
+  if (link) {
+    if (/^help-issue-[a-z0-9-]+$/.test(anchor)) {
+      link.hidden = false;
+      link.setAttribute('href', '#' + anchor);
+      link.setAttribute('data-help-anchor', anchor);
+    } else {
+      link.hidden = true;
+      link.removeAttribute('href');
+      link.removeAttribute('data-help-anchor');
+    }
+  }
+
+  if (issueInfoState.hideTimer) {
+    clearTimeout(issueInfoState.hideTimer);
+    issueInfoState.hideTimer = null;
+  }
+  issueInfoState.suppressFocus = null;
+  if (issueInfoState.trigger && issueInfoState.trigger !== trigger) {
+    issueInfoState.trigger.setAttribute('aria-expanded', 'false');
+  }
+  issueInfoState.trigger = trigger;
+  issueInfoState.pinned = !!pinned;
+  trigger.setAttribute('aria-expanded', 'true');
+  pop.hidden = false;
+  positionIssueInfo(trigger);
+}
+
+function closeIssueInfo(restoreFocus) {
+  // setActiveTab runs during the initial restoreTabFromHash() call, before the
+  // popover state initializer below has executed.
+  if (!issueInfoState) return;
+  var pop = issueInfoPopover();
+  var trigger = issueInfoState.trigger;
+  if (issueInfoState.hideTimer) {
+    clearTimeout(issueInfoState.hideTimer);
+    issueInfoState.hideTimer = null;
+  }
+  issueInfoState.trigger = null;
+  issueInfoState.pinned = false;
+  if (pop) {
+    pop.hidden = true;
+    pop.style.left = '';
+    pop.style.top = '';
+  }
+  if (trigger) {
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && trigger.focus) {
+      // Focusing the trigger fires the delegated focusin handler. Mark it so
+      // Escape closes the popover instead of immediately reopening it.
+      issueInfoState.suppressFocus = trigger;
+      trigger.focus();
+    }
+  }
+}
+
+function hideIssueInfoSoon() {
+  if (issueInfoState.pinned) return;
+  if (issueInfoState.hideTimer) clearTimeout(issueInfoState.hideTimer);
+  issueInfoState.hideTimer = setTimeout(function() {
+    issueInfoState.hideTimer = null;
+    closeIssueInfo(false);
+  }, issueInfoHideDelay);
+}
+
+// Resolve a Help anchor into the Help tab and scroll to it once visible.
+function openHelpAnchor(anchorId) {
+  if (!/^help-issue-[a-z0-9-]+$/.test(String(anchorId || ''))) return;
+  var el = document.getElementById(anchorId);
+  if (!el) return;
+  closeIssueInfo(false);
+  setActiveTab('help');
+  if (el.scrollIntoView) el.scrollIntoView();
+  if (location.hash !== '#' + anchorId) location.hash = anchorId;
+}
+
+(function initIssueInfo() {
+  var app = document.getElementById('issues-app');
+  var pop = issueInfoPopover();
+  if (!app || !pop) return;
+
+  app.addEventListener('mouseover', function(e) {
+    var trigger = e.target.closest ? e.target.closest('.issue-info') : null;
+    if (!trigger || issueInfoState.trigger === trigger) return;
+    // A pinned popover only changes on a click, Escape, or an outside click.
+    if (issueInfoState.pinned && issueInfoState.trigger) return;
+    openIssueInfo(trigger, false);
+  });
+
+  app.addEventListener('mouseout', function(e) {
+    var trigger = e.target.closest ? e.target.closest('.issue-info') : null;
+    if (!trigger) return;
+    var to = e.relatedTarget;
+    if (to && (trigger.contains(to) || pop.contains(to))) return;
+    hideIssueInfoSoon();
+  });
+
+  app.addEventListener('click', function(e) {
+    var trigger = e.target.closest ? e.target.closest('.issue-info') : null;
+    if (!trigger) return;
+    e.preventDefault();
+    if (issueInfoState.trigger === trigger && issueInfoState.pinned) {
+      closeIssueInfo(false);
+      return;
+    }
+    openIssueInfo(trigger, true);
+  });
+
+  app.addEventListener('focusin', function(e) {
+    var trigger = e.target.closest ? e.target.closest('.issue-info') : null;
+    if (!trigger) return;
+    if (issueInfoState.suppressFocus === trigger) {
+      issueInfoState.suppressFocus = null;
+      return;
+    }
+    if (issueInfoState.trigger === trigger) return;
+    openIssueInfo(trigger, false);
+  });
+
+  app.addEventListener('focusout', function(e) {
+    var to = e.relatedTarget;
+    if (to && (pop.contains(to) || (issueInfoState.trigger && issueInfoState.trigger.contains(to)))) return;
+    hideIssueInfoSoon();
+  });
+
+  // The popover follows every row in the DOM, so make Tab from the trigger land
+  // on the link instead of the next row's control, and Shift+Tab come back.
+  app.addEventListener('keydown', function(e) {
+    if (e.key !== 'Tab' || !issueInfoState.trigger) return;
+    var link = document.getElementById('issue-info-link');
+    if (e.shiftKey) {
+      if (document.activeElement === link) {
+        e.preventDefault();
+        issueInfoState.trigger.focus();
+      }
+      return;
+    }
+    if (document.activeElement === issueInfoState.trigger) {
+      var target = (link && !link.hidden) ? link : pop;
+      if (target && target.focus) {
+        e.preventDefault();
+        target.focus();
+      }
+    }
+  });
+
+  pop.addEventListener('mouseenter', function() {
+    if (issueInfoState.hideTimer) {
+      clearTimeout(issueInfoState.hideTimer);
+      issueInfoState.hideTimer = null;
+    }
+  });
+  pop.addEventListener('mouseleave', hideIssueInfoSoon);
+
+  pop.addEventListener('click', function(e) {
+    var link = e.target.closest ? e.target.closest('#issue-info-link') : null;
+    if (!link) return;
+    var anchor = link.getAttribute('data-help-anchor') || '';
+    if (!anchor) return;
+    e.preventDefault();
+    openHelpAnchor(anchor);
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape' || !issueInfoState.trigger) return;
+    e.preventDefault();
+    closeIssueInfo(true);
+  });
+
+  // Focus leaving both the trigger and the popover (for example Tab from the
+  // link) closes it, so a stale card never floats over the page.
+  document.addEventListener('focusin', function(e) {
+    if (!issueInfoState.trigger) return;
+    if (pop.contains(e.target)) return;
+    if (issueInfoState.trigger.contains(e.target)) return;
+    closeIssueInfo(false);
+  });
+
+  document.addEventListener('pointerdown', function(e) {
+    if (!issueInfoState.trigger) return;
+    if (pop.contains(e.target)) return;
+    if (issueInfoState.trigger.contains(e.target)) return;
+    closeIssueInfo(false);
+  });
+
+  window.addEventListener('scroll', function() {
+    if (!issueInfoState.trigger) return;
+    if (!document.contains(issueInfoState.trigger)) {
+      closeIssueInfo(false);
+      return;
+    }
+    positionIssueInfo(issueInfoState.trigger);
+  }, true);
+
+  window.addEventListener('resize', function() {
+    if (issueInfoState.trigger) positionIssueInfo(issueInfoState.trigger);
+  });
+})();
 
 function renderIssueSection(heading, items, acknowledged) {
   var html = '<div class="traefik-section"><h2>' + escapeHtml(heading) +
@@ -1721,6 +2304,11 @@ function renderIssueSection(heading, items, acknowledged) {
 function renderIssues(data) {
   var container = document.getElementById('issues-app');
   if (!container) return;
+
+  // Rows are about to be replaced, so an open popover would point at a node
+  // that no longer exists.
+  closeIssueInfo(false);
+  applyIssueCatalog(data);
 
   var items = data.items || [];
   var acknowledged = data.acknowledged || [];

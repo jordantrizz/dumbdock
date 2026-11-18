@@ -25,6 +25,22 @@ every poll after authentication.
 | Integration API | `error` | A Watchtower or PruneMate API is unreachable, unauthorized, or disabled after three failed attempts |
 | Integration status | `warning` | A vendor-reported problem: failed Watchtower updates, or a PruneMate that has never pruned or has gone stale |
 
+## Explaining a finding type
+
+Every row carries a small info control beside its title, in both the **Active**
+and **Acknowledged** tables. Hovering it, focusing it with the keyboard, or
+tapping it opens a popover with the category name, a one-sentence explanation,
+and **Read the full explanation**, which opens the **Help** tab scrolled to that
+category's full reference. Clicking the control pins the popover in place;
+`Escape` closes it and returns focus to the control, and clicking elsewhere
+closes it.
+
+The popover is per issue type, not per finding: it explains what the category
+means, not the specific container in the row. The text comes from the issue
+catalog in `issue_catalog.go`, which also supplies the category labels and the
+grouping order, so a category cannot appear in a row without a description and a
+Help section.
+
 ## When the Traefik API is disabled
 
 After three failed boot attempts the gate disables Traefik API work for the run —

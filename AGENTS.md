@@ -347,6 +347,17 @@ see README "Issues Tab"):
 * **Stable opaque IDs.** `newIssueID` hashes category + source + canonical object key. Never
   derive an ID from a title, timestamp, container label, or request input, and never use an ID
   as a filesystem path.
+* **Every category is documented once.** `issueCategoryCatalog` in `issue_catalog.go` is the
+  single declaration of a category's label, one-sentence summary, possible severities, and Help
+  anchor. It rides on `issuesResponse.Categories` (JSON `categories`), so `GET /api/issues` and
+  both acknowledge responses carry it even with zero findings. Each snapshot publishes a copy
+  (`copyIssueCategoryCatalog`, severities included), so a reader may treat its payload as its own;
+  the declaration itself is init-time state and is never appended to, sorted, or otherwise
+  mutated. A new category — or a changed one — adds one catalog entry **and** one
+  `#help-issue-<category>` section to `index.html` in the same commit;
+  `issue_catalog_test.go` scans `issues.go` and `index.html` and fails on a missing entry, an
+  orphan entry, a missing or duplicated Help anchor, an over-long summary, or an invalid
+  severity. Summaries stay one plain sentence with no markup, container names, or secrets.
 * **Acknowledgements are server state.** `POST`/`DELETE /api/issues/{id}/acknowledge` require
   the existing auth middleware plus `X-Dumbdock-Request: issues`; they accept only a
   server-issued 64-char hex ID. Persist before publishing, and leave the snapshot unchanged on
@@ -377,6 +388,18 @@ see README "Issues Tab"):
   only on the Dashboard (`setActiveTab`), and its saved mode must survive tab switches. Every
   interpolated issue/coverage value goes through `escapeHtml` (H-02). Do not fetch before auth
   resolves and do not reintroduce the old unconditional `loadTraefik()` call.
+* **Category info popover.** Each row's info control is a real `<button class="issue-info">`
+  with `aria-label`, `aria-expanded`, and `aria-controls="issue-info-popover"`; the one shared
+  popover node (`role="dialog"`, `aria-modal="false"`) is never duplicated per row. Listeners are
+  delegated on `#issues-app` (rows are replaced every poll), and `renderIssues` and
+  `setActiveTab` close the popover before its trigger disappears. Hover and focus open it, a
+  click or Enter pins it, and Escape, an outside pointerdown, and the 10-second re-render close
+  it; Escape returns focus to the control. Tab from the trigger moves to the popover link and
+  Shift+Tab returns, a pinned popover ignores hovering another row, and focus leaving both the
+  trigger and the popover closes it.
+  The summary, title, and Help link come from `data.categories`; an anchor is used only after
+  `/^help-issue-[a-z0-9-]+$/`, an unknown category shows a no-description fallback with no link,
+  and the Help link goes through `openHelpAnchor` so the section is visible before scrolling.
 
 ## Storage and Backups
 
@@ -460,10 +483,19 @@ Implemented 2026-09-23 (`index.html`; see README "Help Tab"):
   syncs the URL fragment (see "Tab Persistence" below). Keep the no-fetch rule.
 * Add future guides by appending a `.traefik-section` block inside `#page-help` and an entry in the
   guide table of contents (`.help-toc`). Reuse the existing `traefik-*`/`help-*` classes.
+* **The issue reference is anchor-keyed.** Every issue category has exactly one
+  `.traefik-section.help-guide.help-anchor` block with `id="help-issue-<category>"` and one
+  **Issue reference** TOC entry. The section carries four parts — what it means and its severity,
+  why it appears (the collector's trigger), how to resolve it, and what exempts it or is out of
+  scope — and the page opens with a summary table naming every type. `issue_catalog_test.go`
+  fails for a missing or duplicated anchor or an orphan `#help-issue-` section, so a new category
+  cannot ship undocumented. Anchors live inside `#page-help`, which is how `tabFromHash` keeps a
+  `#help-issue-...` fragment on the Help tab.
 * Help content is authored as static HTML only — never interpolate user/container data into it
-  (no XSS surface, per H-02). The current guides are "Configure Traefik API Access", "Enable the
-  Watchtower HTTP API", and "Override integration detection"; keep them static and keep their
-  `.help-toc` entries in sync.
+  (no XSS surface, per H-02). Severity badges reuse `.issue-sev`; the severity line uses
+  `.help-issue-meta` and group labels `.help-toc-group`. The current guides are "Configure Traefik
+  API Access", "Enable the Watchtower HTTP API", and "Override integration detection"; keep them
+  static and keep their `.help-toc` entries in sync.
 
 ## Tab Persistence
 

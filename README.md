@@ -39,7 +39,8 @@ docker compose logs dumbdock | grep -i password
   from Traefik v3's API, with a bounded boot attempt gate.
 - **Issues** — provable problems only: public ports, image updates, unhealthy
   containers, proxy failures, misplaced data, stale or missing backups.
-  Acknowledge one until it resolves.
+  Acknowledge one until it resolves, and open a type's Help reference from
+  its info control.
 - **Storage and backups** — where each compose file and database lives, and how
   fresh its last verified backup is.
 - **Nothing is mutated** — dumbdock reads the Docker and Traefik APIs and writes

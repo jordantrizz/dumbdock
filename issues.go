@@ -79,13 +79,17 @@ type issueCoverage struct {
 	Warnings           []string            `json:"warnings,omitempty"`
 }
 
-// issuesResponse is the payload of GET /api/issues.
+// issuesResponse is the payload of GET /api/issues and of the acknowledgement
+// endpoints. Categories is static documentation for every issue type; it is
+// present even when no finding is active so the page can explain an issue type
+// before one occurs.
 type issuesResponse struct {
-	Count        int           `json:"count"`
-	Items        []hostIssue   `json:"items"`
-	Acknowledged []hostIssue   `json:"acknowledged"`
-	Coverage     issueCoverage `json:"coverage"`
-	CheckedAt    time.Time     `json:"checkedAt"`
+	Count        int                 `json:"count"`
+	Items        []hostIssue         `json:"items"`
+	Acknowledged []hostIssue         `json:"acknowledged"`
+	Coverage     issueCoverage       `json:"coverage"`
+	Categories   []issueCategoryInfo `json:"categories"`
+	CheckedAt    time.Time           `json:"checkedAt"`
 }
 
 const (
@@ -163,7 +167,7 @@ func newIssueStore(stateDir string) *issueStore {
 		ack:       make(map[string]time.Time),
 		firstSeen: make(map[string]time.Time),
 		known:     make(map[string]hostIssue),
-		published: issuesResponse{Items: []hostIssue{}, Acknowledged: []hostIssue{}},
+		published: issuesResponse{Items: []hostIssue{}, Acknowledged: []hostIssue{}, Categories: copyIssueCategoryCatalog()},
 	}
 }
 
@@ -342,6 +346,7 @@ func (s *issueStore) publishLocked(active, acknowledged []hostIssue) {
 		Items:        active,
 		Acknowledged: acknowledged,
 		Coverage:     s.coverage,
+		Categories:   copyIssueCategoryCatalog(),
 		CheckedAt:    s.checkedAt,
 	}
 }

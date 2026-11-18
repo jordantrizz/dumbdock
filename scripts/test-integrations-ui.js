@@ -31,8 +31,18 @@ assert.ok(
 assert.ok(/currentTab === 'integrations'\)\s*\{\s*loadIntegrations\(\);/.test(html), 'refreshActiveTab has no integrations branch');
 assert.ok(/page-integrations[^]*?loadIntegrations\(\);/.test(html), 'poll loop does not refresh integrations');
 assert.ok(html.includes("apiFetch('/api/integrations')"), 'loadIntegrations does not use /api/integrations');
-assert.ok(html.includes("'integration-api': 'Integration API'"), 'Issues category label missing for integration-api');
-assert.ok(html.includes("'integration-status': 'Integration status'"), 'Issues category label missing for integration-status');
+// Issue labels live in the Go catalog (issueCategoryCatalog) and reach the page
+// through the /api/issues payload; assert the declarations and their Help
+// sections instead of a removed client-side label map.
+const catalogSource = fs.readFileSync(path.join(__dirname, '..', 'issue_catalog.go'), 'utf8');
+for (const [constant, label, anchor] of [
+  ['categoryIntegrationAPI', 'Integration API', 'help-issue-integration-api'],
+  ['categoryIntegrationStatus', 'Integration status', 'help-issue-integration-status'],
+]) {
+  assert.ok(new RegExp('Category:\\s+' + constant + ',').test(catalogSource), 'catalog entry missing for ' + constant);
+  assert.ok(catalogSource.includes('Label:      "' + label + '"'), 'catalog label missing for ' + label);
+  assert.ok(html.includes('id="' + anchor + '"'), 'Help section missing for ' + label);
+}
 assert.ok(html.includes('id="help-watchtower-api"'), 'Watchtower help guide missing');
 assert.ok(html.includes('id="help-integration-overrides"'), 'override help guide missing');
 

@@ -137,6 +137,15 @@ Returns the cached host-issue snapshot.
     "dockerVersion": {"checked": true, "lastCheckedAt": "2026-11-06T00:00:00Z"},
     "warnings": []
   },
+  "categories": [
+    {
+      "category": "container-health",
+      "label": "Container health",
+      "summary": "Docker's healthcheck for this container reports unhealthy, so it is running but failing its own health test.",
+      "severities": ["error"],
+      "helpAnchor": "help-issue-container-health"
+    }
+  ],
   "checkedAt": "2026-11-06T12:00:00Z"
 }
 ```
@@ -145,6 +154,13 @@ Returns the cached host-issue snapshot.
 `acknowledged: true` and `acknowledgedAt`. `count` is the number of active
 findings. The response contains no Docker labels, Traefik credentials, registry
 tokens, or log text.
+
+`categories` documents every issue type once — it is static policy data, present
+even when `count` is `0`, and identical in both acknowledge responses. `label` is
+the name the Issues page groups by, `summary` is the one-sentence explanation the
+page shows in its info popover, `severities` lists the levels that type can emit,
+and `helpAnchor` is the matching Help tab section id (`help-issue-<category>`).
+It carries no finding data and never changes between polls.
 
 ## POST and DELETE `/api/issues/{id}/acknowledge`
 
