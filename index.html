@@ -83,6 +83,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .dash-stat-card .stat-label{font-size:0.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.15rem}
 .dash-stat-card .stat-sub{font-size:0.7rem;color:#8b949e;margin-top:0.2rem}
 .dash-stat-card.dash-updates .stat-count{color:#f0883e}
+.dash-stat-card.dash-public .stat-count{color:#f85149}
 .dash-stat-card.dash-private .stat-count{color:#d29922}
 .dash-stat-card.dash-local .stat-count{color:#3fb950}
 .dash-stat-card.dash-traefik .stat-count{color:#58a6ff}
@@ -901,7 +902,7 @@ async function load() {
 }
 
 // ---- Dashboard scoreboard ----
-// Active scoreboard filter ('updates' | 'private' | 'local' | 'traefik') or null.
+// Active scoreboard filter ('updates' | 'public' | 'private' | 'local' | 'traefik') or null.
 let dashboardFilter = null;
 
 // Flatten the dashboard payload into a deduped list of every container, using
@@ -925,6 +926,7 @@ function collectContainers(data) {
 function scoreboardMatches(card, filter) {
   switch (filter) {
     case 'updates': return card.updateAvailable === true;
+    case 'public': return card.hasPublicBinding === true;
     case 'private': return card.hasPrivateBinding === true;
     case 'local': return card.hasLocalBinding === true;
     case 'traefik': return card.traefikEnabled === true;
@@ -948,16 +950,18 @@ function renderScoreboard(data) {
   const el = document.getElementById('scoreboard');
   if (!el) return;
   const all = collectContainers(data);
-  const counts = { updates: 0, unknown: 0, private: 0, local: 0, traefik: 0 };
+  const counts = { updates: 0, unknown: 0, public: 0, private: 0, local: 0, traefik: 0 };
   for (const c of all) {
     if (c.updateAvailable) counts.updates++;
     if (c.updateStatus === 'unknown') counts.unknown++;
+    if (c.hasPublicBinding) counts.public++;
     if (c.hasPrivateBinding) counts.private++;
     if (c.hasLocalBinding) counts.local++;
     if (c.traefikEnabled) counts.traefik++;
   }
   el.innerHTML =
     scoreboardTile('updates', 'Updates', counts.updates, counts.unknown ? counts.unknown + ' unknown' : '') +
+    scoreboardTile('public', 'Public Port Binding', counts.public, '') +
     scoreboardTile('private', 'Private Port Binding', counts.private, '') +
     scoreboardTile('local', 'Localhost Port Binding', counts.local, '') +
     scoreboardTile('traefik', 'Traefik Enabled', counts.traefik, '');
@@ -982,6 +986,7 @@ function render(data) {
   if (dashboardFilter) {
     const filterLabels = {
       updates: 'Updates available',
+      public: 'Public port binding',
       private: 'Private port binding',
       local: 'Localhost port binding',
       traefik: 'Traefik enabled'
