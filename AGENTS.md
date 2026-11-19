@@ -521,8 +521,6 @@ Implemented 2026-09-23 (`index.html`; see README "Tab Persistence"):
   fixed the old Icons→Networking highlight bug). Update both README "Tab Persistence" and this
   note when adding or renaming a tab.
 
-
-
 ## Dashboard Scoreboard
 
 Implemented 2026-11-19 (`index.html`; page: `website/docs/guides/scoreboard.md`):
@@ -532,13 +530,15 @@ Implemented 2026-11-19 (`index.html`; page: `website/docs/guides/scoreboard.md`)
   tile uses `hasPublicBinding`, which `checkPortBindings` (`warnings.go`) has always produced. Keep
   counting in the browser and keep the 10-second poll as the only refresh path.
 * **Order and colour.** All, Updates, Public Port Binding, Private Port Binding, Localhost Port
-  Binding, Traefik Enabled. Accent classes `.dash-all` / `.dash-updates` / `.dash-public` /
-  `.dash-private` / `.dash-local` / `.dash-traefik` mirror the `.legend-*` colours, so the tile and
-  the card marker agree. `.dash-zero` dims a zero count.
+  Binding, Traefik Enabled. Accent classes `.dash-public` / `.dash-private` / `.dash-local` /
+  `.dash-traefik` mirror the `.legend-*` colours, so the tile and the card marker agree;
+  `.dash-updates` is the existing orange and `.dash-all` stays neutral. `.dash-zero` dims a zero
+  count.
 * **All is the reset control, not a filter.** `setDashboardFilter('all')` returns
   `clearDashboardFilter()`, and `scoreboardTile` marks the `all` tile active only when
-  `dashboardFilter === null`. Do not add an `all` case to `scoreboardMatches` or `filterLabels` and
-  do not render a flat all-containers grid — that duplicates the grouped view.
+  `dashboardFilter === null`, exposes the state as `aria-pressed`, and gives that tile the tooltip
+  `Show all containers` rather than `Filter: All`. Do not add an `all` case to `scoreboardMatches`
+  or `filterLabels` and do not render a flat all-containers grid — that duplicates the grouped view.
 * **Public means what the legend means.** `hasPublicBinding` counts `0.0.0.0`, a public IP, and any
   address that fails to parse; loopback is local and RFC1918/link-local is private. The Issues
   `container-exposure` finding covers the same condition on a different surface: the tile counts and

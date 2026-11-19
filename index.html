@@ -909,7 +909,9 @@ async function load() {
 let dashboardFilter = null;
 
 // Flatten the dashboard payload into a deduped list of every container, using
-// the labeled cards plus the remaining unlabeled ones.
+// the labeled cards plus the remaining unlabeled ones. This is the authoritative
+// dedupe for the scoreboard counts: the grouped view renders data.unlabeled raw,
+// which is only equivalent because the server keeps cards and unlabeled disjoint.
 function collectContainers(data) {
   const seen = new Set();
   const out = [];
@@ -937,11 +939,13 @@ function scoreboardMatches(card, filter) {
   return false;
 }
 
-function scoreboardTile(filter, label, count, sub) {
+function scoreboardTile(filter, label, count, sub, title) {
   const active = (filter === 'all' ? dashboardFilter === null : dashboardFilter === filter) ? ' active' : '';
   const zero = count === 0 ? ' dash-zero' : '';
+  const hint = title || 'Filter: ' + label;
   return '<button type="button" class="dash-stat-card dash-' + filter + zero + active + '" ' +
-    'onclick="setDashboardFilter(\'' + filter + '\')" title="Filter: ' + escapeHtml(label) + '">' +
+    'aria-pressed="' + (active ? 'true' : 'false') + '" ' +
+    'onclick="setDashboardFilter(\'' + filter + '\')" title="' + escapeHtml(hint) + '">' +
     '<div class="stat-count">' + count + '</div>' +
     '<div class="stat-label">' + escapeHtml(label) + '</div>' +
     (sub ? '<div class="stat-sub">' + escapeHtml(sub) + '</div>' : '') +
@@ -963,7 +967,7 @@ function renderScoreboard(data) {
     if (c.traefikEnabled) counts.traefik++;
   }
   el.innerHTML =
-    scoreboardTile('all', 'All', counts.all, '') +
+    scoreboardTile('all', 'All', counts.all, '', 'Show all containers') +
     scoreboardTile('updates', 'Updates', counts.updates, counts.unknown ? counts.unknown + ' unknown' : '') +
     scoreboardTile('public', 'Public Port Binding', counts.public, '') +
     scoreboardTile('private', 'Private Port Binding', counts.private, '') +

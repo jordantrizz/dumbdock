@@ -16,7 +16,10 @@ summarising the current container set.
 | **Traefik Enabled** | `traefikEnabled` |
 
 - Counts cover every container in the `/api/containers` response — labelled and
-  unlabeled — deduplicated by container ID, and refresh on each 10-second poll.
+  unlabeled — deduplicated by container ID (or by name when no ID is present), and
+  refresh on each 10-second poll. **All** counts distinct containers, so the
+  **By Dependency** view, which shows a container in each group it belongs to,
+  can render more cards than the tile counts.
 - A container can be counted in more than one tile: it can have both a private
   binding and Traefik enabled.
 - **Public** means a published port on a non-loopback, non-private address.
