@@ -82,6 +82,7 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .dash-stat-card .stat-count{font-size:1.5rem;font-weight:700;color:#f0f2f5;line-height:1.2}
 .dash-stat-card .stat-label{font-size:0.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.15rem}
 .dash-stat-card .stat-sub{font-size:0.7rem;color:#8b949e;margin-top:0.2rem}
+.dash-stat-card.dash-all .stat-count{color:#f0f2f5}
 .dash-stat-card.dash-updates .stat-count{color:#f0883e}
 .dash-stat-card.dash-public .stat-count{color:#f85149}
 .dash-stat-card.dash-private .stat-count{color:#d29922}
@@ -903,6 +904,8 @@ async function load() {
 
 // ---- Dashboard scoreboard ----
 // Active scoreboard filter ('updates' | 'public' | 'private' | 'local' | 'traefik') or null.
+// The 'all' tile is not a filter: it is highlighted when nothing is filtered and clicking
+// it clears the active filter (see setDashboardFilter).
 let dashboardFilter = null;
 
 // Flatten the dashboard payload into a deduped list of every container, using
@@ -935,7 +938,7 @@ function scoreboardMatches(card, filter) {
 }
 
 function scoreboardTile(filter, label, count, sub) {
-  const active = dashboardFilter === filter ? ' active' : '';
+  const active = (filter === 'all' ? dashboardFilter === null : dashboardFilter === filter) ? ' active' : '';
   const zero = count === 0 ? ' dash-zero' : '';
   return '<button type="button" class="dash-stat-card dash-' + filter + zero + active + '" ' +
     'onclick="setDashboardFilter(\'' + filter + '\')" title="Filter: ' + escapeHtml(label) + '">' +
@@ -950,7 +953,7 @@ function renderScoreboard(data) {
   const el = document.getElementById('scoreboard');
   if (!el) return;
   const all = collectContainers(data);
-  const counts = { updates: 0, unknown: 0, public: 0, private: 0, local: 0, traefik: 0 };
+  const counts = { all: all.length, updates: 0, unknown: 0, public: 0, private: 0, local: 0, traefik: 0 };
   for (const c of all) {
     if (c.updateAvailable) counts.updates++;
     if (c.updateStatus === 'unknown') counts.unknown++;
@@ -960,6 +963,7 @@ function renderScoreboard(data) {
     if (c.traefikEnabled) counts.traefik++;
   }
   el.innerHTML =
+    scoreboardTile('all', 'All', counts.all, '') +
     scoreboardTile('updates', 'Updates', counts.updates, counts.unknown ? counts.unknown + ' unknown' : '') +
     scoreboardTile('public', 'Public Port Binding', counts.public, '') +
     scoreboardTile('private', 'Private Port Binding', counts.private, '') +
@@ -968,7 +972,9 @@ function renderScoreboard(data) {
 }
 
 // Toggle a scoreboard filter on/off and re-render the dashboard.
+// The 'all' tile is the reset control: it never sets a filter of its own.
 function setDashboardFilter(filter) {
+  if (filter === 'all') return clearDashboardFilter();
   dashboardFilter = (dashboardFilter === filter) ? null : filter;
   if (dashboardData) render(dashboardData);
 }
