@@ -149,20 +149,41 @@ func validateConfig(cfg *overrideConfig, loadErr error, authMode string) []confi
 	}
 
 	if cfg != nil {
+		// Name problems are checked on the raw entries, because an entry with
+		// no name never reaches the effective list.
+		names := make(map[string]bool, len(cfg.IconSets))
 		for i, is := range cfg.IconSets {
 			field := fmt.Sprintf("iconSets[%d]", i)
-			if strings.TrimSpace(is.Name) == "" {
+			name := strings.ToLower(strings.TrimSpace(is.Name))
+			if name == "" {
 				warnings = append(warnings, configWarning{Field: field, Message: "missing name"})
+				continue
 			}
+			if names[name] {
+				warnings = append(warnings, configWarning{
+					Field:   field,
+					Message: fmt.Sprintf("duplicate name %q; the last entry wins", is.Name),
+				})
+			}
+			names[name] = true
+		}
+
+		// Everything else is checked on the merged list, so an entry that only
+		// disables or tweaks a built-in is not reported for fields it inherits.
+		for _, is := range resolveIconSets(cfg) {
+			field := "iconSets." + is.Name
 			if strings.TrimSpace(is.CdnUrlTemplate) == "" {
 				warnings = append(warnings, configWarning{Field: field, Message: "missing cdnUrlTemplate"})
 			}
+			if is.IndexFormat == "metadata" && strings.TrimSpace(is.IndexUrl) == "" {
+				warnings = append(warnings, configWarning{Field: field, Message: "metadata format requires indexUrl"})
+			}
 			switch is.IndexFormat {
-			case "", "map", "list", "tree", "objects":
+			case "", "map", "list", "tree", "objects", "metadata":
 			default:
 				warnings = append(warnings, configWarning{
 					Field:   field,
-					Message: fmt.Sprintf("unknown indexFormat %q (expected map, list, tree, or objects)", is.IndexFormat),
+					Message: fmt.Sprintf("unknown indexFormat %q (expected map, list, tree, objects, or metadata)", is.IndexFormat),
 				})
 			}
 		}

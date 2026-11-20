@@ -278,6 +278,41 @@ curl -X POST -H 'X-Dumbdock-Request: backups' \
 
 Returns container identity, state, network attachments and ports — no labels.
 
+## GET /api/icons
+
+Returns the resolved icon sets, in priority order. It is a cache read behind the
+normal auth wrapper — it never fetches an index or an image on request.
+
+```json
+{
+  "iconSets": [
+    {
+      "name": "dashboard-icons",
+      "cdnUrlTemplate": "https://cdn.statically.io/gh/homarr-labs/dashboard-icons/main/{base}/{slug}.{base}",
+      "indexUrl": "https://raw.githubusercontent.com/homarr-labs/dashboard-icons/refs/heads/main/metadata.json",
+      "indexFormat": "metadata",
+      "mappings": {"nginx": "nginx"},
+      "slugs": ["nginx", "wbo"],
+      "bases": {"nginx": "svg", "wbo": "png"},
+      "aliases": {"nginx": ["NGINX", "Web Server"]}
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Set identifier, and the key a config entry overrides |
+| `cdnUrlTemplate` | Image URL template with `{slug}`, and optionally `{base}`/`{ext}` |
+| `indexUrl` / `indexFormat` | Where the set's index came from and which parser read it |
+| `mappings` | Image name → icon slug |
+| `slugs` | Every known icon slug, sorted |
+| `bases` | Slug → `svg`, `png` or `webp` |
+| `aliases` | Slug → extra names the index declares |
+
+See [Icons](../guides/icons.md) for how an image name resolves and how to add a
+set.
+
 ## GET /api/version
 
 Returns `{"version":"<semver>","build":"<sha>"}`. Public in every auth mode, so a

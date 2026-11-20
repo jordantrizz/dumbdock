@@ -1234,7 +1234,7 @@ function renderDetailSections(card) {
 }
 
 function renderCard(card) {
-  const icon = card.icon ? '<img src="' + escapeHtml(card.icon) + '" alt="">' : '<div class="icon-placeholder">&#9632;</div>';
+  const icon = card.icon ? '<img src="' + escapeHtml(card.icon) + '" alt="" referrerpolicy="no-referrer">' : '<div class="icon-placeholder">&#9632;</div>';
   const href = card.href ? 'href="' + escapeHtml(card.href) + '" target="_blank" rel="noopener"' : '';
   const name = href ? '<a class="card-name" ' + href + '>' + escapeHtml(card.name) + '</a>' : '<span class="card-name">' + escapeHtml(card.name) + '</span>';
   const desc = card.description ? '<div class="card-desc">' + escapeHtml(card.description) + '</div>' : '';
@@ -1754,6 +1754,16 @@ function filterIcons() {
   filterTimeout = setTimeout(applyFilter, 150);
 }
 
+// Build a preview URL from a set's template the same way the Go side does:
+// {slug} always, and {base}/{ext} from the slug's index base (svg by default).
+function iconPreviewURL(set, slug) {
+  const base = (set.bases && set.bases[slug]) || 'svg';
+  return set.cdnUrlTemplate
+    .replace(/\{slug\}/g, slug)
+    .replace(/\{base\}/g, base)
+    .replace(/\{ext\}/g, base);
+}
+
 function applyFilter() {
   if (!iconsData) return;
   const q = document.getElementById('iconSearch').value.toLowerCase();
@@ -1766,12 +1776,17 @@ function applyFilter() {
 
     // Mappings (image name -> icon slug)
     for (const [imageName, slug] of Object.entries(set.mappings)) {
-      if (q && !imageName.toLowerCase().includes(q) && !slug.toLowerCase().includes(q) && !set.name.toLowerCase().includes(q)) continue;
+      const aliases = (set.aliases && set.aliases[slug]) || [];
+      const searchText = [imageName, slug, set.name].concat(aliases).join(' ').toLowerCase();
+      if (q && !searchText.includes(q)) continue;
       allIconRows.push({
         imageName: imageName,
         slug: slug,
         provider: set.name,
-        cdnUrl: set.cdnUrlTemplate.replace('{slug}', slug),
+        base: (set.bases && set.bases[slug]) || 'svg',
+        aliases: aliases,
+        indexUrl: set.indexUrl || '',
+        cdnUrl: iconPreviewURL(set, slug),
         isMapping: true
       });
     }
@@ -1780,12 +1795,17 @@ function applyFilter() {
     const mapped = new Set(Object.values(set.mappings));
     for (const slug of set.slugs) {
       if (mapped.has(slug)) continue;
-      if (q && !slug.toLowerCase().includes(q) && !set.name.toLowerCase().includes(q)) continue;
+      const aliases = (set.aliases && set.aliases[slug]) || [];
+      const searchText = [slug, set.name].concat(aliases).join(' ').toLowerCase();
+      if (q && !searchText.includes(q)) continue;
       allIconRows.push({
         imageName: null,
         slug: slug,
         provider: set.name,
-        cdnUrl: set.cdnUrlTemplate.replace('{slug}', slug),
+        base: (set.bases && set.bases[slug]) || 'svg',
+        aliases: aliases,
+        indexUrl: set.indexUrl || '',
+        cdnUrl: iconPreviewURL(set, slug),
         isMapping: false
       });
     }
@@ -1809,8 +1829,10 @@ function rowToHtml(row) {
   const imgName = row.isMapping
     ? '<span class="mapping-key">' + escapeHtml(row.imageName) + '</span>'
     : '<span class="empty-mapping">&mdash; (known slug)</span>';
-  const preview = '<img src="' + escapeHtml(row.cdnUrl) + '" alt="' + escapeHtml(row.slug) + '" loading="lazy" onerror="this.style.display=\'none\'">';
-  return '<tr><td>' + imgName + '</td><td class="slug-cell">' + escapeHtml(row.slug) + '</td><td><span class="provider-badge">' + escapeHtml(row.provider) + '</span></td><td>' + preview + '</td></tr>';
+  const aliasTitle = row.aliases.length ? ' title="Aliases: ' + escapeHtml(row.aliases.join(', ')) + '"' : '';
+  const sourceTitle = row.indexUrl ? ' title="' + escapeHtml(row.indexUrl) + '"' : '';
+  const preview = '<img src="' + escapeHtml(row.cdnUrl) + '" alt="' + escapeHtml(row.slug) + '" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">';
+  return '<tr><td>' + imgName + '</td><td class="slug-cell"' + aliasTitle + '>' + escapeHtml(row.slug) + '</td><td><span class="provider-badge"' + sourceTitle + '>' + escapeHtml(row.provider) + '</span></td><td>' + escapeHtml(row.base) + '</td><td>' + preview + '</td></tr>';
 }
 
 function loadMoreIcons() {
@@ -1828,13 +1850,13 @@ function renderIconTable(append) {
 
   if (!append) {
     // Full render: build the entire table from scratch
-    let html = '<div class="icon-table-wrap"><table class="icon-table"><thead><tr><th>Image Name</th><th>Icon Slug</th><th>Provider</th><th>Preview</th></tr></thead><tbody>';
+    let html = '<div class="icon-table-wrap"><table class="icon-table"><thead><tr><th>Image Name</th><th>Icon Slug</th><th>Provider</th><th>Format</th><th>Preview</th></tr></thead><tbody>';
     for (let i = 0; i < count; i++) {
       html += rowToHtml(allIconRows[i]);
     }
     // Add sentinel row if there are more icons to lazy load
     if (count < allIconRows.length) {
-      html += '<tr id="iconSentinel" class="icon-sentinel"><td colspan="4"></td></tr>';
+      html += '<tr id="iconSentinel" class="icon-sentinel"><td colspan="5"></td></tr>';
     }
     html += '</tbody></table></div>';
     container.innerHTML = html;

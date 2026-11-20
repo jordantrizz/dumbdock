@@ -158,6 +158,7 @@ func loadConfig(path string) *overrideConfig {
 |-----------|-------|
 | **File(s)** | `icons.go` |
 | **Line(s)** | `icons.go:178-180` (`io.ReadAll`) |
+| **Status** | **Fixed 2026-11-19** — `readIndexBody` caps every HTTP and local-file read at `iconIndexMaxBytes` (16 MiB) and refuses an over-cap index |
 
 **Description:** The `readIndex()` function fetches icon index files from remote URLs using `io.ReadAll()` with no size limit on the response body. The default icon sets point to jsDelivr and GitHub raw content, but custom icon sets configured via `dumbdock.json` can point to arbitrary URLs. A malicious or compromised server could return an extremely large JSON payload, causing dumbdock to exhaust available memory.
 
@@ -283,7 +284,7 @@ The `readIndex()` function supports three URL schemes: `https://`, `http://`, `f
 | **File(s)** | `icons.go`, `index.html` |
 | **Line(s)** | `icons.go:86-94`, `index.html:313` |
 
-**Description:** Icon images are loaded from external CDNs (jsDelivr for selfhst/icons and dashboard-icons) via `<img>` tags in the dashboard. This introduces two risks:
+**Description:** Icon images are loaded from external CDNs (jsDelivr for selfhst/icons; statically.io for dashboard-icons images, with its index on raw.githubusercontent.com) via `<img>` tags in the dashboard. This introduces two risks:
 
 1. **Supply chain:** If the CDN is compromised or an icon repository maintainer pushes malicious content, SVG icons can contain JavaScript. While `<img>` tags block script execution in modern browsers, SVGs served directly or through redirects could potentially exploit browser vulnerabilities or leak information via HTTP headers during the fetch.
 
@@ -292,10 +293,10 @@ The `readIndex()` function supports three URL schemes: `https://`, `http://`, `f
 **Impact:** Low in practice (modern browsers sandbox `<img>`-loaded SVGs), but represents unnecessary third-party dependency and privacy leakage.
 
 **Remediation:**
-1. Add an option to configure a local/self-hosted icon mirror or CDN (e.g., `ICON_CDN_BASE_URL` environment variable).
+1. Add an option to configure a local/self-hosted icon mirror or CDN (e.g., `ICON_CDN_BASE_URL` environment variable). Partly addressed: `cdnUrlTemplate` already points a set at any host, and an entry named after a built-in overrides it.
 2. Consider embedding a curated set of SVG icons in the binary to eliminate external dependencies entirely.
-3. At minimum, add `crossorigin="anonymous"` to `<img>` tags and document the external dependency so users can make an informed decision.
-4. Add a `referrerpolicy="no-referrer"` attribute to icon `<img>` tags to prevent referrer leakage.
+3. At minimum, add `crossorigin="anonymous"` to `<img>` tags and document the external dependency so users can make an informed decision. Deliberately not done: a user-supplied `dumbdock.icon` host need not send CORS headers, so `crossorigin` would break those icons.
+4. Add a `referrerpolicy="no-referrer"` attribute to icon `<img>` tags to prevent referrer leakage. **Implemented 2026-11-19** on card icons and Icons-tab previews.
 
 ---
 

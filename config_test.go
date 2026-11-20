@@ -208,8 +208,42 @@ func TestValidateConfig(t *testing.T) {
 			cfg: &overrideConfig{IconSets: []IconSetConfig{
 				{Name: "", CdnUrlTemplate: "", IndexFormat: "bogus"},
 			}},
+			authMode: "none",
+			// An entry with no name never reaches the effective list, so the
+			// name is the only thing worth reporting.
+			wantFields: []string{"iconSets[0]"},
+		},
+		{
+			name: "duplicate icon set name",
+			cfg: &overrideConfig{IconSets: []IconSetConfig{
+				{Name: "custom", CdnUrlTemplate: "https://example.com/{slug}.svg"},
+				{Name: "custom", CdnUrlTemplate: "https://example.com/{slug}.svg"},
+			}},
 			authMode:   "none",
-			wantFields: []string{"iconSets[0]", "iconSets[0]", "iconSets[0]"},
+			wantFields: []string{"iconSets[1]"},
+		},
+		{
+			name: "metadata icon set without an index url",
+			cfg: &overrideConfig{IconSets: []IconSetConfig{
+				{Name: "custom", CdnUrlTemplate: "https://example.com/{slug}.svg", IndexFormat: "metadata"},
+			}},
+			authMode:   "none",
+			wantFields: []string{"iconSets.custom"},
+		},
+		{
+			name: "unknown icon set format",
+			cfg: &overrideConfig{IconSets: []IconSetConfig{
+				{Name: "custom", CdnUrlTemplate: "https://example.com/{slug}.svg", IndexFormat: "bogus"},
+			}},
+			authMode:   "none",
+			wantFields: []string{"iconSets.custom"},
+		},
+		{
+			name: "disabling a built-in icon set is not a warning",
+			cfg: &overrideConfig{IconSets: []IconSetConfig{
+				{Name: "dashboard-icons", Enabled: testBoolPtr(false)},
+			}},
+			authMode: "none",
 		},
 		{
 			name:       "invalid storage root",

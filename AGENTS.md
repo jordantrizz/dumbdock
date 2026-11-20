@@ -10,7 +10,9 @@
 * Print a status report on each session summarizing what was changed and why
 * After completing code work, suggest testing methods for the change to complete.
 * Add any issues that might be useful for the future to AGENTS.md
-* Go is not installed on the host. Run build/vet/test inside the local `golang:1.22-alpine` image:
+* A Go toolchain is present at `~/.local/bin/go` (`go version go1.27.1 linux/amd64` as of
+  2026-11-19), so `go build ./...`, `go vet ./...` and `go test ./...` run natively. The pinned
+  `golang:1.22-alpine` image remains the CI-parity alternative:
   `docker run --rm -v "$PWD":/src -w /src golang:1.22-alpine sh -c 'go build ./... && go vet ./... && go test ./...'`
 
 ## Documentation
@@ -65,6 +67,9 @@ Implemented 2026-09-23 in `main.go` (`cfg` fallback after `loadConfig` error); `
 ### H-04: Unbounded memory from icon index fetch
 `readIndex()` uses `io.ReadAll` with no size limit — could exhaust memory.
 **Fix:** Add `http.MaxBytesReader` or `io.LimitReader` in `icons.go`.
+Implemented 2026-11-19 in `icons.go`: every HTTP and local-file index read goes through
+`readIndexBody` with `io.LimitReader(…, iconIndexMaxBytes+1)` and an over-cap read is an error
+(`iconIndexMaxBytes` is 16 MiB); `Content-Length` and a local file size are pre-checked too.
 
 ### M-02: Gotify token in URL query string
 Token is passed as `?token=...` in URL — logged by proxies.
@@ -202,6 +207,52 @@ Implemented 2026-09-17 (`updates.go`, `updates_test.go`; see README "Image Updat
 * `parseImageRef` in `updates.go` is the canonical image-reference normalizer for this feature;
   `imagePath` in `icons.go` remains the icon-specific parser.
 * No new Go module dependencies: the registry client is stdlib-only (`net/http`, `encoding/json`).
+
+## Icon Sets
+
+Implemented 2026-11-19 (`icons.go`, `icons_test.go`, `index.html`, `scripts/test-icons-ui.js`; see
+`website/docs/guides/icons.md`):
+
+* **The registry is additive.** `builtinIconSets()` is the only built-in declaration;
+  `resolveIconSets(cfg)` merges `iconSets` over it: a name matching a built-in (case-insensitive)
+  overrides it field by field, a new name appends a set, and `enabled:false` removes a set. An empty
+  field inherits, mappings merge with the config winning, and the result is ordered by priority with
+  `SliceStable`, so equal priorities keep the built-ins first. Never reintroduce the old "a config
+  array replaces the built-ins" branch.
+* **`resolveIconSets` is the single source for init and validation.** `initIconSets` and
+  `validateConfig` both call it, so an entry that only disables or tweaks a set is never reported for
+  fields it inherits. Name problems (missing, or duplicated among the raw entries) are checked on the
+  raw entries, because a nameless entry never reaches the effective list.
+* **Formats.** `map` (values are slugs), `list`, `tree` (filename array in `indexField`; the base is
+  `indexField` when it is svg/png/webp), `objects` (`indexField` names the slug key), and `metadata`
+  (slug → `{base, aliases, colors, categories}`). Every format produces `map[string]iconInfo`; an
+  unknown or empty base means `svg`. `metadata` requires an `indexUrl`.
+* **Templates.** `{slug}` is always replaced; `{base}` and `{ext}` are replaced with the icon's base,
+  so a template that names neither behaves exactly as before. The best-guess URL also uses the known
+  base.
+* **Resolution.** mappings[path] → mappings[last] → exact slug → normalized slug → normalized alias.
+  `normalizeIconKey` lowercases and turns spaces and underscores into `-`; aliases are indexed in
+  sorted slug order (first wins), a real slug never loses to an alias, and map iteration order never
+  decides a result.
+* **Hosts are split on purpose.** dashboard-icons images come from
+  `https://cdn.statically.io/gh/homarr-labs/dashboard-icons/main/{base}/{slug}.{base}` because
+  jsDelivr returns `403 Package size exceeded the configured limit of 50 MB.` for any file it has not
+  already cached. Its index stays on `raw.githubusercontent.com` because statically.io stalls on the
+  1.3 MB `metadata.json`. Do not "simplify" this back to one jsDelivr host; the selfhst set stays on
+  jsDelivr.
+* **Bounded reads.** H-04 is fixed: `iconIndexMaxBytes` (16 MiB) caps every index, and an over-cap
+  read is an error, never a truncated index. Keep the 15 s client timeout and the single warning line
+  per failed set.
+* **Payload.** `GET /api/icons` adds `bases`, `aliases`, `indexUrl` and `indexFormat` to each set and
+  returns copies; it stays a cache read. The Icons tab builds previews with `iconPreviewURL` (the same
+  substitution as Go), shows a **Format** column, searches aliases, and escapes every value (H-02).
+  Card and preview `<img>` tags set `referrerpolicy="no-referrer"`; do not add `crossorigin`, because a
+  user-supplied `dumbdock.icon` host need not send CORS headers.
+* **No new setting.** `enabled` is the only new config field; `startupConfig` and `logStartupConfig`
+  are unchanged and only `validateConfig`'s format allowlist grew. Dark/light variants
+  (`colors.dark`/`colors.light`) and category browsing are deliberately out of scope: 849 colour
+  targets name a file `metadata.json` does not describe, so an automatic variant would risk a broken
+  image.
 
 ## Traefik API Resilience
 

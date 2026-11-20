@@ -7,10 +7,13 @@ Changes are generated from `git log` by `npm run gen:docs`; this page is not
 edited by hand.
 
 <!-- BEGIN GENERATED: changelog -->
-- fix: expose scoreboard tile state and correct all-tile tooltip (81fbe00)
-- docs: document the all and public scoreboard tiles (206bbc7)
-- feat: add all-containers tile that resets the dashboard filter (0388171)
-- feat: add public port binding tile to dashboard scoreboard (f3b69f2)
+- Release 0.4.0 (965b109)
+- test: cover the dashboard icons metadata path end to end (160bcda)
+- docs: document multiple icon sets and the dashboard icons metadata source (b19c307)
+- feat: show icon format, aliases and source in the icons tab (44b68d5)
+- feat: make icon sets additive and serve dashboard icons from metadata (33d2c86)
+- feat: render icon urls by base and resolve icon aliases (9cbc9f3)
+- feat: parse dashboard icon metadata and bound every index read (c73ed88)
 - Release 0.3.0 (1c360bf)
 - Release 0.2.2 (917170f)
 - Release 0.2.1 (5f6058b)

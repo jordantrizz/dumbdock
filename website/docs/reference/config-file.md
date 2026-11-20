@@ -35,7 +35,7 @@ useful for containers you cannot or do not want to re-label.
 | `authMode` | string | `web-auth` | `none`, `http-auth`, or `web-auth`. `DUMBDOCK_AUTH_MODE` overrides it. |
 | `containers` | object | `{}` | Per-container overrides keyed by container name. |
 | `integrations` | object | `{}` | Per-integration overrides, keyed by `traefik`, `watchtower`, or `prunemate`. See [Integrations](../guides/integrations.md). |
-| `iconSets` | array | see [Icons](../guides/icons.md) | Icon providers. When present, replaces the built-in defaults entirely. |
+| `iconSets` | array | see [Icons](../guides/icons.md) | Icon sets. Entries extend the built-ins: a built-in's `name` overrides it, a new name adds a set, and `enabled: false` removes one. |
 
 The file also accepts `updateCheck` (boolean) and the `storage.*` keys
 (`containerRoot`, `dataRoot`, `backupRoot`, `backups.<project>/<service>.maxAge`)
