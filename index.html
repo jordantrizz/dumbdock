@@ -82,7 +82,9 @@ h3{font-size:0.95rem;margin:1.25rem 0 0.5rem;color:#c9d1d9;text-transform:upperc
 .dash-stat-card .stat-count{font-size:1.5rem;font-weight:700;color:#f0f2f5;line-height:1.2}
 .dash-stat-card .stat-label{font-size:0.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.15rem}
 .dash-stat-card .stat-sub{font-size:0.7rem;color:#8b949e;margin-top:0.2rem}
+.dash-stat-card.dash-all .stat-count{color:#f0f2f5}
 .dash-stat-card.dash-updates .stat-count{color:#f0883e}
+.dash-stat-card.dash-public .stat-count{color:#f85149}
 .dash-stat-card.dash-private .stat-count{color:#d29922}
 .dash-stat-card.dash-local .stat-count{color:#3fb950}
 .dash-stat-card.dash-traefik .stat-count{color:#58a6ff}
@@ -901,11 +903,15 @@ async function load() {
 }
 
 // ---- Dashboard scoreboard ----
-// Active scoreboard filter ('updates' | 'private' | 'local' | 'traefik') or null.
+// Active scoreboard filter ('updates' | 'public' | 'private' | 'local' | 'traefik') or null.
+// The 'all' tile is not a filter: it is highlighted when nothing is filtered and clicking
+// it clears the active filter (see setDashboardFilter).
 let dashboardFilter = null;
 
 // Flatten the dashboard payload into a deduped list of every container, using
-// the labeled cards plus the remaining unlabeled ones.
+// the labeled cards plus the remaining unlabeled ones. This is the authoritative
+// dedupe for the scoreboard counts: the grouped view renders data.unlabeled raw,
+// which is only equivalent because the server keeps cards and unlabeled disjoint.
 function collectContainers(data) {
   const seen = new Set();
   const out = [];
@@ -925,6 +931,7 @@ function collectContainers(data) {
 function scoreboardMatches(card, filter) {
   switch (filter) {
     case 'updates': return card.updateAvailable === true;
+    case 'public': return card.hasPublicBinding === true;
     case 'private': return card.hasPrivateBinding === true;
     case 'local': return card.hasLocalBinding === true;
     case 'traefik': return card.traefikEnabled === true;
@@ -932,11 +939,13 @@ function scoreboardMatches(card, filter) {
   return false;
 }
 
-function scoreboardTile(filter, label, count, sub) {
-  const active = dashboardFilter === filter ? ' active' : '';
+function scoreboardTile(filter, label, count, sub, title) {
+  const active = (filter === 'all' ? dashboardFilter === null : dashboardFilter === filter) ? ' active' : '';
   const zero = count === 0 ? ' dash-zero' : '';
+  const hint = title || 'Filter: ' + label;
   return '<button type="button" class="dash-stat-card dash-' + filter + zero + active + '" ' +
-    'onclick="setDashboardFilter(\'' + filter + '\')" title="Filter: ' + escapeHtml(label) + '">' +
+    'aria-pressed="' + (active ? 'true' : 'false') + '" ' +
+    'onclick="setDashboardFilter(\'' + filter + '\')" title="' + escapeHtml(hint) + '">' +
     '<div class="stat-count">' + count + '</div>' +
     '<div class="stat-label">' + escapeHtml(label) + '</div>' +
     (sub ? '<div class="stat-sub">' + escapeHtml(sub) + '</div>' : '') +
@@ -948,23 +957,28 @@ function renderScoreboard(data) {
   const el = document.getElementById('scoreboard');
   if (!el) return;
   const all = collectContainers(data);
-  const counts = { updates: 0, unknown: 0, private: 0, local: 0, traefik: 0 };
+  const counts = { all: all.length, updates: 0, unknown: 0, public: 0, private: 0, local: 0, traefik: 0 };
   for (const c of all) {
     if (c.updateAvailable) counts.updates++;
     if (c.updateStatus === 'unknown') counts.unknown++;
+    if (c.hasPublicBinding) counts.public++;
     if (c.hasPrivateBinding) counts.private++;
     if (c.hasLocalBinding) counts.local++;
     if (c.traefikEnabled) counts.traefik++;
   }
   el.innerHTML =
+    scoreboardTile('all', 'All', counts.all, '', 'Show all containers') +
     scoreboardTile('updates', 'Updates', counts.updates, counts.unknown ? counts.unknown + ' unknown' : '') +
+    scoreboardTile('public', 'Public Port Binding', counts.public, '') +
     scoreboardTile('private', 'Private Port Binding', counts.private, '') +
     scoreboardTile('local', 'Localhost Port Binding', counts.local, '') +
     scoreboardTile('traefik', 'Traefik Enabled', counts.traefik, '');
 }
 
 // Toggle a scoreboard filter on/off and re-render the dashboard.
+// The 'all' tile is the reset control: it never sets a filter of its own.
 function setDashboardFilter(filter) {
+  if (filter === 'all') return clearDashboardFilter();
   dashboardFilter = (dashboardFilter === filter) ? null : filter;
   if (dashboardData) render(dashboardData);
 }
@@ -982,6 +996,7 @@ function render(data) {
   if (dashboardFilter) {
     const filterLabels = {
       updates: 'Updates available',
+      public: 'Public port binding',
       private: 'Private port binding',
       local: 'Localhost port binding',
       traefik: 'Traefik enabled'
