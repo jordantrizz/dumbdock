@@ -71,7 +71,7 @@ ln -s dumbdock-git/control.sh control.sh
 ├── .env                           # hand-crafted configuration and secrets
 ├── .gitignore                     # excludes dumbdock-git/ and runtime state
 ├── docker-compose.yml             # local file or a symlink into the checkout
-├── docker-compose.override.yml    # per-host overrides (never generated)
+├── docker-compose.override.yml    # per-host overrides (never replaced)
 ├── control.sh -> dumbdock-git/control.sh
 └── dumbdock-git/                  # application checkout — untracked here
 ```
@@ -82,7 +82,9 @@ and build inputs come from the checkout through
 the install root's `.env`, adds one anchored `/<checkout>/` rule to its
 `.gitignore`, and never records the checkout as a gitlink. A local compose file
 or override is host-owned and is never replaced; keep host-specific changes in
-`docker-compose.override.yml`.
+`docker-compose.override.yml`. `./control.sh tunnel named` creates that override
+from `docker-compose.override.yml.example` the first time it runs and leaves an
+existing file untouched.
 
 ## Tunnels
 
@@ -90,9 +92,10 @@ or override is host-owned and is never replaced; keep host-specific changes in
 account. It writes the temporary URL to `.tunnel-url`.
 
 `tunnel setup` provisions a named tunnel from the Cloudflare API and writes
-`TUNNEL_TOKEN` to `.env`; `tunnel named` then runs the profile-gated
-`cloudflared` Compose service. The required values are documented in
-`.env.example`:
+`TUNNEL_TOKEN` to `.env`; `tunnel named` then creates
+`docker-compose.override.yml` from the add-on example if it is missing and
+starts the profile-gated `cloudflared` service. It never overwrites an override
+you already have. The required values are documented in `.env.example`:
 
 | Variable | Purpose |
 |----------|---------|

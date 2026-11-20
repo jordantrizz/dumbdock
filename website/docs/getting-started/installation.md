@@ -31,6 +31,27 @@ docker compose up -d
 
 Then open `http://localhost:8080`.
 
+### Optional: Cloudflare Tunnel (compose add-on)
+
+The base stack has no tunnel. A named Cloudflare Tunnel ships as an optional
+compose add-on in `docker-compose.override.yml.example`. Docker Compose merges
+that file into `docker-compose.yml` automatically when it is named
+`docker-compose.override.yml`, so no `-f` flag is needed:
+
+```bash
+# Either let control.sh create it on the first `tunnel named` run, or copy it:
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+The tunnel stays off while you use `./control.sh start`: the `cloudflared`
+service is profile-gated, and only `./control.sh tunnel named` starts it — after
+`./control.sh tunnel setup` has written `TUNNEL_TOKEN` to `.env`. Compose never
+overwrites an existing override file, so any additions you make there survive
+upgrades.
+
+See [control.sh](../commands/control-sh.md#tunnels) for the tunnel commands and
+the variables they read.
+
 ### The published port
 
 `DUMBDOCK_PORT` in `.env` selects the **published host port only**:

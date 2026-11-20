@@ -125,10 +125,15 @@ Implemented 2026-11-14 (the `lmt-skills-docker-control-sh` skill; see docs `comm
   split install builds the install root and fails at `COPY . .`. Keep
   `docker-compose.yml` and `docker-compose.yml.example` in sync for this and every other
   non-local value.
-* The optional named tunnel is the profile-gated `cloudflared` Compose service
-  (`profiles: [tunnel]`). It must not start during `setup`/`start`; only
-  `./control.sh tunnel named` opts in. Its ingress origin is the in-network
-  `http://dumbdock:8080`, never host `localhost`.
+* The optional named tunnel is an **add-on file**, not a base service:
+  `docker-compose.override.yml.example` carries only `cloudflared`
+  (`profiles: [tunnel]`), and Docker Compose merges it into the base stack once
+  the operator copies it to `docker-compose.override.yml`. `control.sh tunnel
+  named` makes that copy on first use (`tunnel_ensure_override`) and never
+  rewrites an existing override. The tunnel must not start during
+  `setup`/`start`; only `./control.sh tunnel named` opts in. Its ingress origin
+  is the in-network `http://dumbdock:8080`, never host `localhost`. Keep
+  `cloudflared` out of `docker-compose.yml` and `docker-compose.yml.example`.
 * Runtime files `.port`, `.tunnel-url`, `.tunnel.pid` and `.tunnel.pid.log` are gitignored.
   `.env` remains gitignored; `.env.example` is tracked and carries the CF tunnel keys commented
   out, so `setup` never generates fake API tokens.
