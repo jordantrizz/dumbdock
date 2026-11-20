@@ -1,0 +1,24 @@
+# Optional compose add-on: a named Cloudflare Tunnel for the dumbdock stack.
+#
+# This file is ignored by Compose until you copy it to docker-compose.override.yml,
+# which Compose merges into docker-compose.yml automatically (no -f flag needed):
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# `./control.sh tunnel named` makes that copy for you the first time it runs and
+# never overwrites an override file you already have. The tunnel still stays off
+# during `setup`/`start` because the service is profile-gated: it only starts
+# with `./control.sh tunnel named`.
+#
+# TUNNEL_TOKEN and CF_TUNNEL_HOSTNAME are documented in .env.example. The origin
+# is the in-network service name, not a host-side localhost port.
+
+services:
+  cloudflared:
+    image: 'cloudflare/cloudflared:latest'
+    container_name: dumbdock-cloudflared
+    command: 'tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-}'
+    restart: unless-stopped
+    profiles: [tunnel]
+    depends_on:
+      - dumbdock
