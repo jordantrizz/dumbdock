@@ -13,7 +13,7 @@
 #   ./control.sh logs [service]                tail app log (default) or docker logs (service)
 #   ./control.sh tunnel quick                  expose app via trycloudflare (no account)
 #   ./control.sh tunnel setup                  one-time named tunnel provisioning via API
-#   ./control.sh tunnel named                  run provisioned named tunnel
+#   ./control.sh tunnel named                  run provisioned named tunnel (compose add-on)
 #   ./control.sh tunnel url                    print current remote URL
 #   ./control.sh tunnel status                 show tunnel process state
 #   ./control.sh tunnel stop                   stop project's cloudflared
@@ -635,6 +635,26 @@ ensure_free_dumbdock_port() {
     fi
 }
 
+# dumbdock-only: the named tunnel runs from the optional compose add-on
+# docker-compose.override.yml, which Docker Compose merges into the base file
+# automatically. Create it from the committed example on first use, and never
+# rewrite an override the operator already owns.
+tunnel_ensure_override() {
+    local override="docker-compose.override.yml"
+    local example="${CODE_DIR}/docker-compose.override.yml.example"
+    if [ ! -f "$override" ]; then
+        if [ ! -f "$example" ]; then
+            die "Missing ${override} and its example (${example}) — restore the checkout and retry."
+        fi
+        cp "$example" "$override"
+        log "Created ${override} from docker-compose.override.yml.example."
+        return 0
+    fi
+    if ! grep -qE '^[[:space:]]*cloudflared:[[:space:]]*$' "$override"; then
+        die "${override} exists but defines no 'cloudflared' service. Add the service from docker-compose.override.yml.example, or delete the file and re-run."
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # -- setup -----------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -1123,6 +1143,7 @@ cmd_tunnel_setup() {
 cmd_tunnel_named() {
     require_docker
     prepare_install
+    tunnel_ensure_override
     tunnel_require_port
     tunnel_stop_if_running
 
