@@ -115,7 +115,8 @@ Implemented 2026-11-14 (the `lmt-skills-docker-control-sh` skill; see docs `comm
 * `control.sh` is the skill's generic, auto-detecting script plus a clearly marked
   `Project hooks (dumbdock)` section. Keep the generic commands and layout logic intact;
   put dumbdock-specific behaviour in that section (today: `app_port`, `port_free`,
-  `ensure_free_dumbdock_port`) and call it from the generic commands where needed.
+  `ensure_free_dumbdock_port`, `tunnel_ensure_override`, `refresh_compose_file_list`)
+  and call it from the generic commands where needed.
 * The script supports single-directory and **split install** layouts. In a split install the
   install root owns `.env`, the compose files and runtime state; the checkout sits beside it
   (e.g. `dumbdock-git/`) and is reached through `${CONTROL_CODE_DIR:-.}`. The script adds one

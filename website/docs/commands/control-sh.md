@@ -6,7 +6,7 @@ description: The single operations script for the Compose stack — setup, lifec
 `./control.sh` manages the Docker Compose stack. It auto-detects the layout, the
 compose files, the main service and the build args, so it needs no configuration
 file of its own. It is the generic, auto-detecting control script from the
-`lmt-skills-docker-control-sh` skill plus one dumbdock-specific port hook.
+`lmt-skills-docker-control-sh` skill plus dumbdock-specific port and tunnel hooks.
 
 ## Commands
 
@@ -71,7 +71,7 @@ ln -s dumbdock-git/control.sh control.sh
 ├── .env                           # hand-crafted configuration and secrets
 ├── .gitignore                     # excludes dumbdock-git/ and runtime state
 ├── docker-compose.yml             # local file or a symlink into the checkout
-├── docker-compose.override.yml    # per-host overrides (never replaced)
+├── docker-compose.override.yml    # optional; created by tunnel named, never replaced
 ├── control.sh -> dumbdock-git/control.sh
 └── dumbdock-git/                  # application checkout — untracked here
 ```
@@ -95,7 +95,9 @@ account. It writes the temporary URL to `.tunnel-url`.
 `TUNNEL_TOKEN` to `.env`; `tunnel named` then creates
 `docker-compose.override.yml` from the add-on example if it is missing and
 starts the profile-gated `cloudflared` service. It never overwrites an override
-you already have. The required values are documented in `.env.example`:
+you already have: if yours exists but has no `cloudflared` service, `tunnel
+named` refuses and asks you to merge the service from the example in yourself.
+The required values are documented in `.env.example`:
 
 | Variable | Purpose |
 |----------|---------|

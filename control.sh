@@ -635,6 +635,17 @@ ensure_free_dumbdock_port() {
     fi
 }
 
+# dumbdock-only: keep a prod install's recorded COMPOSE_FILE list in step with
+# the files actually present, so a newly added add-on is never hidden behind a
+# stale value. Plain installs record nothing and keep Compose's own discovery.
+refresh_compose_file_list() {
+    detect_compose_files
+    if grep -qE '^COMPOSE_FILE=' "$ENV_FILE" 2>/dev/null; then
+        set_env COMPOSE_FILE "$COMPOSE_FILES"
+    fi
+    return 0
+}
+
 # dumbdock-only: the named tunnel runs from the optional compose add-on
 # docker-compose.override.yml, which Docker Compose merges into the base file
 # automatically. Create it from the committed example on first use, and never
@@ -642,16 +653,23 @@ ensure_free_dumbdock_port() {
 tunnel_ensure_override() {
     local override="docker-compose.override.yml"
     local example="${CODE_DIR}/docker-compose.override.yml.example"
+
+    refresh_compose_file_list
+
+    if [ -L "$override" ]; then
+        die "${override} is a symlink; refusing to write through it. Replace it with a real file and re-run."
+    fi
     if [ ! -f "$override" ]; then
         if [ ! -f "$example" ]; then
             die "Missing ${override} and its example (${example}) — restore the checkout and retry."
         fi
         cp "$example" "$override"
         log "Created ${override} from docker-compose.override.yml.example."
+        refresh_compose_file_list
         return 0
     fi
-    if ! grep -qE '^[[:space:]]*cloudflared:[[:space:]]*$' "$override"; then
-        die "${override} exists but defines no 'cloudflared' service. Add the service from docker-compose.override.yml.example, or delete the file and re-run."
+    if ! docker compose --profile tunnel config --services 2>/dev/null | grep -qx 'cloudflared'; then
+        die "${override} exists but exposes no 'cloudflared' service. Merge the service from docker-compose.override.yml.example into it and re-run."
     fi
 }
 
@@ -1143,7 +1161,6 @@ cmd_tunnel_setup() {
 cmd_tunnel_named() {
     require_docker
     prepare_install
-    tunnel_ensure_override
     tunnel_require_port
     tunnel_stop_if_running
 
@@ -1157,6 +1174,8 @@ cmd_tunnel_named() {
     if [ -z "$hostname" ]; then
         die "CF_TUNNEL_HOSTNAME is required. Set it in .env and retry."
     fi
+
+    tunnel_ensure_override
 
     log "Starting named tunnel (docker compose service) to ${hostname}..."
 

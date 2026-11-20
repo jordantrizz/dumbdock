@@ -43,11 +43,12 @@ that file into `docker-compose.yml` automatically when it is named
 cp docker-compose.override.yml.example docker-compose.override.yml
 ```
 
-The tunnel stays off while you use `./control.sh start`: the `cloudflared`
-service is profile-gated, and only `./control.sh tunnel named` starts it — after
+The tunnel stays off while you use `./control.sh start`: the shipped add-on is
+profile-gated, and only `./control.sh tunnel named` starts it — after
 `./control.sh tunnel setup` has written `TUNNEL_TOKEN` to `.env`. Compose never
 overwrites an existing override file, so any additions you make there survive
-upgrades.
+upgrades. If your override exists but has no `cloudflared` service, `tunnel
+named` stops with an instruction instead of editing your file.
 
 See [control.sh](../commands/control-sh.md#tunnels) for the tunnel commands and
 the variables they read.
